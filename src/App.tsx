@@ -215,7 +215,7 @@ export default function App() {
   // Helper API Fetch Function
   const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
