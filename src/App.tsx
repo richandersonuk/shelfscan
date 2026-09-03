@@ -13,30 +13,37 @@ interface MatchResult {
   box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0-1000
 }
 
+interface Suggestion {
+  title: string;
+  author: string;
+}
+
 export default function App() {
-  // API key pulled directly from environment variable
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 
-  // App State & Tabs
+  // App State
   const [activeTab, setActiveTab] = useState<'scan' | 'wishlist' | 'library'>('scan');
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Scanning & Vision State
-  const [scanMode, setScanMode] = useState<'wishlist_shelf' | 'library_shelf' | 'isbn'>('wishlist_shelf');
+  // Scan State
+  const [scanMode, setScanMode] = useState<'wishlist_shelf' | 'library_shelf' | 'isbn' | 'screenshot_wishlist'>('wishlist_shelf');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [detectedBooks, setDetectedBooks] = useState<Book[]>([]);
+  const [selectedBooks, setSelectedBooks] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
-  // Manual Entry Form State
+  // Manual Form & Auto-complete State
   const [manualTitle, setManualTitle] = useState('');
   const [manualAuthor, setManualAuthor] = useState('');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load saved lists from LocalStorage on mount
+  // LocalStorage Persistence
   useEffect(() => {
     const savedWishlist = localStorage.getItem('shelfscan_wishlist');
     const savedLibrary = localStorage.getItem('shelfscan_library');
@@ -51,7 +58,6 @@ export default function App() {
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
   }, []);
 
-  // Sync state changes to LocalStorage
   useEffect(() => {
     localStorage.setItem('shelfscan_wishlist', JSON.stringify(wishlist));
   }, [wishlist]);
@@ -60,7 +66,43 @@ export default function App() {
     localStorage.setItem('shelfscan_library', JSON.stringify(library));
   }, [library]);
 
-  // Image Upload Handler
+  // Open Library Search Auto-complete Debounce
+  useEffect(() => {
+    if (manualTitle.trim().length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(manualTitle)}&limit=5`);
+        const data = await res.json();
+        if (data.docs) {
+          const results: Suggestion[] = data.docs.map((doc: any) => ({
+            title: doc.title,
+            author: doc.author_name ? doc.author_name[0] : 'Unknown Author',
+          }));
+          setSuggestions(results);
+        }
+      } catch (e) {
+        console.error('Auto-complete error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [manualTitle]);
+
+  // Select Suggestion
+  const handleSelectSuggestion = (s: Suggestion) => {
+    setManualTitle(s.title);
+    setManualAuthor(s.author);
+    setSuggestions([]);
+  };
+
+  // Image Upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -70,12 +112,39 @@ export default function App() {
       setImageSrc(reader.result as string);
       setMatches([]);
       setDetectedBooks([]);
+      setSelectedBooks({});
       setError(null);
     };
     reader.readAsDataURL(file);
   };
 
-  // Add Book Manually
+  // Canvas Image Compression Helper
+  const compressImage = (base64DataUrl: string, maxWidth = 1280): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64DataUrl;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        resolve(compressedDataUrl.split(',')[1]);
+      };
+    });
+  };
+
+  // Manual Add
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
     const newBook: Book = {
@@ -92,16 +161,17 @@ export default function App() {
 
     setManualTitle('');
     setManualAuthor('');
+    setSuggestions([]);
   };
 
-  // Main Gemini Vision Dispatcher
+  // Main Gemini Scan
   const handleScan = async () => {
     if (!apiKey) {
-      setError('VITE_GEMINI_API_KEY is not set in your .env file.');
+      setError('VITE_GEMINI_API_KEY is not set in environment variables.');
       return;
     }
     if (!imageSrc) {
-      setError('Please take or upload an image first.');
+      setError('Please select or capture an image first.');
       return;
     }
 
@@ -109,18 +179,11 @@ export default function App() {
     setError(null);
 
     try {
-      const base64Data = imageSrc.split(',')[1];
+      const compressedBase64 = await compressImage(imageSrc, 1280);
 
       if (scanMode === 'wishlist_shelf') {
-        // --- MODE 1: Match Wishlist on Shelf ---
         const wishlistTitles = wishlist.map((b) => b.title);
-        const prompt = `
-          Analyze this image of a bookshelf.
-          Target Wishlist: ${JSON.stringify(wishlistTitles)}.
-          1. Scan visible titles on book spines.
-          2. Match against wishlist.
-          3. For matches, return box_2d [ymin, xmin, ymax, xmax] 0-1000.
-        `;
+        const prompt = `Match spines in image against wishlist: ${JSON.stringify(wishlistTitles)}. Return JSON matches with box_2d [ymin, xmin, ymax, xmax] 0-1000.`;
 
         const schema = {
           type: 'OBJECT',
@@ -141,15 +204,11 @@ export default function App() {
           required: ['matches'],
         };
 
-        const res = await callGeminiAPI(prompt, base64Data, schema);
+        const res = await callGeminiAPI(prompt, compressedBase64, schema);
         setMatches(res.matches || []);
 
       } else if (scanMode === 'library_shelf') {
-        // --- MODE 2: Bulk Shelf Scan to Add to Owned Library ---
-        const prompt = `
-          Analyze this image of a home bookshelf.
-          Extract all visible book titles and authors from book spines.
-        `;
+        const prompt = `Extract all visible book titles and authors from book spines in this image.`;
 
         const schema = {
           type: 'OBJECT',
@@ -169,20 +228,52 @@ export default function App() {
           required: ['books'],
         };
 
-        const res = await callGeminiAPI(prompt, base64Data, schema);
+        const res = await callGeminiAPI(prompt, compressedBase64, schema);
         const parsedBooks: Book[] = (res.books || []).map((b: any) => ({
           id: Math.random().toString(),
           title: b.title,
           author: b.author,
         }));
         setDetectedBooks(parsedBooks);
+        // Pre-select all by default
+        const initSelected: Record<string, boolean> = {};
+        parsedBooks.forEach((b) => (initSelected[b.id] = true));
+        setSelectedBooks(initSelected);
+
+      } else if (scanMode === 'screenshot_wishlist') {
+        const prompt = `This image is a screenshot or document containing book titles or a reading list. Read and extract all book titles and author names listed.`;
+
+        const schema = {
+          type: 'OBJECT',
+          properties: {
+            books: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  title: { type: 'STRING' },
+                  author: { type: 'STRING' },
+                },
+                required: ['title'],
+              },
+            },
+          },
+          required: ['books'],
+        };
+
+        const res = await callGeminiAPI(prompt, compressedBase64, schema);
+        const parsedBooks: Book[] = (res.books || []).map((b: any) => ({
+          id: Math.random().toString(),
+          title: b.title,
+          author: b.author,
+        }));
+        setDetectedBooks(parsedBooks);
+        const initSelected: Record<string, boolean> = {};
+        parsedBooks.forEach((b) => (initSelected[b.id] = true));
+        setSelectedBooks(initSelected);
 
       } else if (scanMode === 'isbn') {
-        // --- MODE 3: Single Book ISBN / Barcode Scan ---
-        const prompt = `
-          Analyze this image of the back or inside cover of a book.
-          Identify the ISBN-10 or ISBN-13 barcode/number, title, and author if visible.
-        `;
+        const prompt = `Identify the ISBN-10 or ISBN-13 barcode/number, title, and author if visible on this book cover or barcode.`;
 
         const schema = {
           type: 'OBJECT',
@@ -194,14 +285,16 @@ export default function App() {
           required: ['title'],
         };
 
-        const res = await callGeminiAPI(prompt, base64Data, schema);
+        const res = await callGeminiAPI(prompt, compressedBase64, schema);
         if (res.title) {
-          setDetectedBooks([{
+          const b: Book = {
             id: Date.now().toString(),
             title: res.title,
             author: res.author,
             isbn: res.isbn,
-          }]);
+          };
+          setDetectedBooks([b]);
+          setSelectedBooks({ [b.id]: true });
         }
       }
     } catch (err: any) {
@@ -212,10 +305,9 @@ export default function App() {
     }
   };
 
-  // Helper API Fetch Function
   const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -240,18 +332,38 @@ export default function App() {
     return JSON.parse(text || '{}');
   };
 
-  // Bulk add scanned books to library
-  const handleImportDetectedToLibrary = () => {
-    setLibrary([...library, ...detectedBooks]);
+  const toggleSelectBook = (id: string) => {
+    setSelectedBooks((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleImportSelected = (target: 'wishlist' | 'library') => {
+    const booksToAdd = detectedBooks.filter((b) => selectedBooks[b.id]);
+    if (target === 'wishlist') {
+      setWishlist([...wishlist, ...booksToAdd]);
+      setActiveTab('wishlist');
+    } else {
+      setLibrary([...library, ...booksToAdd]);
+      setActiveTab('library');
+    }
     setDetectedBooks([]);
     setImageSrc(null);
-    setActiveTab('library');
   };
 
   return (
     <div style={styles.container}>
+      <style>{`
+        @keyframes scanBeam {
+          0% { top: 0%; opacity: 0.8; }
+          50% { top: 95%; opacity: 0.8; }
+          100% { top: 0%; opacity: 0.8; }
+        }
+        @keyframes pulseGlow {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
+
       <div style={styles.card}>
-        {/* Top Header */}
         <header style={styles.header}>
           <h1 style={styles.title}>📚 ShelfScan AI</h1>
           <nav style={styles.nav}>
@@ -276,7 +388,7 @@ export default function App() {
           </nav>
         </header>
 
-        {/* --- TAB 1: SCANNER --- */}
+        {/* SCANNER TAB */}
         {activeTab === 'scan' && (
           <div style={styles.section}>
             <div style={styles.modeSelector}>
@@ -288,6 +400,15 @@ export default function App() {
                   onChange={() => setScanMode('wishlist_shelf')}
                 />
                 Match Shelf to Wishlist
+              </label>
+              <label style={styles.radioLabel}>
+                <input
+                  type="radio"
+                  name="scanMode"
+                  checked={scanMode === 'screenshot_wishlist'}
+                  onChange={() => setScanMode('screenshot_wishlist')}
+                />
+                Screenshot to Wishlist 📸
               </label>
               <label style={styles.radioLabel}>
                 <input
@@ -313,16 +434,16 @@ export default function App() {
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 ref={fileInputRef}
                 onChange={handleImageUpload}
                 style={{ display: 'none' }}
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
                 style={styles.secondaryBtn}
               >
-                {imageSrc ? 'Retake / Change Photo' : '📷 Take Photo'}
+                {imageSrc ? 'Retake / Change Photo' : '📷 Take / Upload Photo'}
               </button>
 
               {imageSrc && (
@@ -331,21 +452,29 @@ export default function App() {
                   disabled={loading}
                   style={{ ...styles.primaryBtn, opacity: loading ? 0.6 : 1 }}
                 >
-                  {loading ? 'Scanning with AI...' : 'Run Scan'}
+                  {loading ? 'Analyzing Spines...' : 'Run Scan'}
                 </button>
               )}
             </div>
 
             {error && <div style={styles.errorBox}>{error}</div>}
 
-            {/* Viewport Overlay */}
+            {/* VIEWPORT OVERLAY */}
             {imageSrc && (
               <div style={styles.viewerContainer}>
                 <div style={styles.imageWrapper}>
                   <img src={imageSrc} alt="Scan target" style={styles.image} />
 
-                  {/* Bounding box highlights for wishlist mode */}
-                  {matches.map((match, idx) => {
+                  {loading && (
+                    <>
+                      <div style={styles.laserLine} />
+                      <div style={styles.scanOverlayText}>
+                        Scanning with AI...
+                      </div>
+                    </>
+                  )}
+
+                  {!loading && matches.map((match, idx) => {
                     const [ymin, xmin, ymax, xmax] = match.box_2d;
                     const boxStyle: React.CSSProperties = {
                       position: 'absolute',
@@ -367,25 +496,44 @@ export default function App() {
                   })}
                 </div>
 
-                {/* Detected Books List (For Shelf Import or ISBN mode) */}
-                {detectedBooks.length > 0 && (
+                {/* DETECTED BOOKS CHECKLIST */}
+                {!loading && detectedBooks.length > 0 && (
                   <div style={styles.resultsBox}>
                     <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
-                      Detected {detectedBooks.length} Book(s):
+                      Found {detectedBooks.length} Book(s):
                     </h3>
-                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
                       {detectedBooks.map((b) => (
-                        <li key={b.id}>
-                          <strong>{b.title}</strong> {b.author && `by ${b.author}`} {b.isbn && `(ISBN: ${b.isbn})`}
-                        </li>
+                        <label key={b.id} style={styles.checkItem}>
+                          <input
+                            type="checkbox"
+                            checked={!!selectedBooks[b.id]}
+                            onChange={() => toggleSelectBook(b.id)}
+                          />
+                          <div>
+                            <strong>{b.title}</strong> {b.author && <span style={styles.subtext}>by {b.author}</span>}
+                          </div>
+                        </label>
                       ))}
-                    </ul>
-                    <button
-                      onClick={handleImportDetectedToLibrary}
-                      style={{ ...styles.primaryBtn, marginTop: '12px', width: '100%' }}
-                    >
-                      Import All to Owned Library
-                    </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      {scanMode === 'screenshot_wishlist' ? (
+                        <button
+                          onClick={() => handleImportSelected('wishlist')}
+                          style={{ ...styles.primaryBtn, width: '100%' }}
+                        >
+                          Add Selected to Wishlist
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleImportSelected('library')}
+                          style={{ ...styles.primaryBtn, width: '100%' }}
+                        >
+                          Add Selected to Library
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -393,17 +541,41 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB 2: WISHLIST --- */}
+        {/* WISHLIST TAB */}
         {activeTab === 'wishlist' && (
           <div style={styles.section}>
             <h2>My Wishlist</h2>
+            
+            {/* MANUAL ENTRY WITH AUTOCOMPLETE */}
             <div style={styles.addForm}>
-              <input
-                placeholder="Book Title"
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                style={styles.input}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  placeholder="Book Title (Type to search...)"
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  style={styles.input}
+                />
+                {isSearching && <span style={styles.searchingBadge}>Searching...</span>}
+
+                {/* Auto-complete Suggestions Dropdown */}
+                {suggestions.length > 0 && (
+                  <div style={styles.dropdown}>
+                    {suggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectSuggestion(s)}
+                        style={styles.dropdownItem}
+                      >
+                        <strong>{s.title}</strong>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>
+                          by {s.author}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <input
                 placeholder="Author (Optional)"
                 value={manualAuthor}
@@ -434,17 +606,38 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB 3: OWNED LIBRARY --- */}
+        {/* LIBRARY TAB */}
         {activeTab === 'library' && (
           <div style={styles.section}>
             <h2>My Owned Library</h2>
             <div style={styles.addForm}>
-              <input
-                placeholder="Book Title"
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                style={styles.input}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  placeholder="Book Title (Type to search...)"
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  style={styles.input}
+                />
+                {isSearching && <span style={styles.searchingBadge}>Searching...</span>}
+
+                {suggestions.length > 0 && (
+                  <div style={styles.dropdown}>
+                    {suggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectSuggestion(s)}
+                        style={styles.dropdownItem}
+                      >
+                        <strong>{s.title}</strong>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>
+                          by {s.author}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <input
                 placeholder="Author (Optional)"
                 value={manualAuthor}
@@ -484,7 +677,6 @@ export default function App() {
   );
 }
 
-// Inline CSS Styles
 const styles: Record<string, React.CSSProperties> = {
   container: {
     minHeight: '100vh',
@@ -577,6 +769,32 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#000',
   },
   image: { display: 'block', maxWidth: '100%', height: 'auto' },
+  laserLine: {
+    position: 'absolute',
+    left: '0',
+    right: '0',
+    height: '4px',
+    backgroundColor: '#10b981',
+    boxShadow: '0 0 15px 4px rgba(16, 185, 129, 0.8)',
+    animation: 'scanBeam 2s ease-in-out infinite',
+    zIndex: 10,
+  },
+  scanOverlayText: {
+    position: 'absolute',
+    bottom: '16px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    color: '#10b981',
+    fontWeight: 'bold',
+    fontSize: '12px',
+    padding: '6px 16px',
+    borderRadius: '20px',
+    border: '1px solid #10b981',
+    backdropFilter: 'blur(4px)',
+    zIndex: 11,
+    animation: 'pulseGlow 1.5s infinite',
+  },
   badge: {
     position: 'absolute',
     top: '-24px',
@@ -595,6 +813,16 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '6px',
     border: '1px solid #334155',
   },
+  checkItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: '#0f172a',
+    padding: '8px',
+    borderRadius: '4px',
+    fontSize: '13px',
+    cursor: 'pointer',
+  },
   addForm: { display: 'flex', flexDirection: 'column', gap: '8px' },
   input: {
     padding: '10px',
@@ -603,6 +831,34 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#1e293b',
     color: '#fff',
     fontSize: '14px',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  searchingBadge: {
+    position: 'absolute',
+    right: '10px',
+    top: '12px',
+    fontSize: '11px',
+    color: '#10b981',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#1e293b',
+    border: '1px solid #334155',
+    borderRadius: '6px',
+    zIndex: 20,
+    marginTop: '4px',
+    maxHeight: '180px',
+    overflowY: 'auto',
+  },
+  dropdownItem: {
+    padding: '8px 12px',
+    cursor: 'pointer',
+    borderBottom: '1px solid #334155',
+    fontSize: '13px',
   },
   list: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' },
   listItem: {
