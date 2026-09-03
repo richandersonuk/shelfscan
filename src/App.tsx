@@ -116,7 +116,7 @@ export default function App() {
       setError(null);
     };
     reader.readAsDataURL(file);
-    e.target.value = ''; // Reset input target so re-selecting same photo triggers onChange
+    e.target.value = '';
   };
 
   const compressImage = (base64DataUrl: string, maxWidth = 1280): Promise<string> => {
@@ -314,11 +314,7 @@ export default function App() {
       <div style={styles.card}>
         <header style={styles.header}>
           <div style={styles.brandContainer}>
-            <img 
-              src="/apple-icon-180x180.png" 
-              alt="ShelfScan AI Logo" 
-              style={styles.headerIcon} 
-            />
+            <div style={styles.headerIconBadge}>📚</div>
             <h1 style={styles.title}>ShelfScan AI</h1>
           </div>
           <nav style={styles.nav}>
@@ -668,11 +664,16 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '10px',
   },
-  headerIcon: {
+  headerIconBadge: {
     width: '28px',
     height: '28px',
     borderRadius: '6px',
-    objectFit: 'cover',
+    backgroundColor: '#1e293b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    border: '1px solid #334155',
   },
   title: { margin: 0, color: '#10b981', fontSize: '20px' },
   nav: { display: 'flex', gap: '8px' },
