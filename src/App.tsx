@@ -26,8 +26,8 @@ export default function App() {
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Scan State
-  const [scanMode, setScanMode] = useState<'wishlist_shelf' | 'library_shelf' | 'isbn' | 'screenshot_wishlist'>('wishlist_shelf');
+  // Scan Mode State: 'search_shelf' | 'add_wishlist' | 'add_library'
+  const [scanMode, setScanMode] = useState<'search_shelf' | 'add_wishlist' | 'add_library'>('search_shelf');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [matches, setMatches] = useState<MatchResult[]>([]);
@@ -68,7 +68,7 @@ export default function App() {
     localStorage.setItem('shelfscan_library', JSON.stringify(library));
   }, [library]);
 
-  // Open Library Search Auto-complete Debounce
+  // Open Library Auto-complete Debounce
   useEffect(() => {
     if (manualTitle.trim().length < 3) {
       setSuggestions([]);
@@ -97,14 +97,12 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [manualTitle]);
 
-  // Select Suggestion
   const handleSelectSuggestion = (s: Suggestion) => {
     setManualTitle(s.title);
     setManualAuthor(s.author);
     setSuggestions([]);
   };
 
-  // Image Upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -120,7 +118,6 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // Canvas Image Compression Helper
   const compressImage = (base64DataUrl: string, maxWidth = 1280): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -146,7 +143,6 @@ export default function App() {
     });
   };
 
-  // Manual Add
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
     const newBook: Book = {
@@ -183,7 +179,7 @@ export default function App() {
     try {
       const compressedBase64 = await compressImage(imageSrc, 1280);
 
-      if (scanMode === 'wishlist_shelf') {
+      if (scanMode === 'search_shelf') {
         const wishlistTitles = wishlist.map((b) => b.title);
         const prompt = `Match spines in image against wishlist: ${JSON.stringify(wishlistTitles)}. Return JSON matches with box_2d [ymin, xmin, ymax, xmax] 0-1000.`;
 
@@ -209,8 +205,13 @@ export default function App() {
         const res = await callGeminiAPI(prompt, compressedBase64, schema);
         setMatches(res.matches || []);
 
-      } else if (scanMode === 'library_shelf') {
-        const prompt = `Extract all visible book titles and authors from book spines in this image.`;
+      } else {
+        // MODE: Add to Wishlist OR Add to Library (handles single cover, barcode/ISBN, bookshelf, or screenshot)
+        const prompt = `
+          Analyze this image to extract book information.
+          It could be a book cover, book spine, rear cover with a barcode/ISBN, a full bookshelf, or a screenshot containing a list of books.
+          Extract all visible book titles, authors, and ISBN numbers.
+        `;
 
         const schema = {
           type: 'OBJECT',
@@ -222,6 +223,7 @@ export default function App() {
                 properties: {
                   title: { type: 'STRING' },
                   author: { type: 'STRING' },
+                  isbn: { type: 'STRING' },
                 },
                 required: ['title'],
               },
@@ -235,68 +237,13 @@ export default function App() {
           id: Math.random().toString(),
           title: b.title,
           author: b.author,
+          isbn: b.isbn,
         }));
+
         setDetectedBooks(parsedBooks);
         const initSelected: Record<string, boolean> = {};
         parsedBooks.forEach((b) => (initSelected[b.id] = true));
         setSelectedBooks(initSelected);
-
-      } else if (scanMode === 'screenshot_wishlist') {
-        const prompt = `This image is a screenshot or document containing book titles or a reading list. Read and extract all book titles and author names listed.`;
-
-        const schema = {
-          type: 'OBJECT',
-          properties: {
-            books: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  title: { type: 'STRING' },
-                  author: { type: 'STRING' },
-                },
-                required: ['title'],
-              },
-            },
-          },
-          required: ['books'],
-        };
-
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
-        const parsedBooks: Book[] = (res.books || []).map((b: any) => ({
-          id: Math.random().toString(),
-          title: b.title,
-          author: b.author,
-        }));
-        setDetectedBooks(parsedBooks);
-        const initSelected: Record<string, boolean> = {};
-        parsedBooks.forEach((b) => (initSelected[b.id] = true));
-        setSelectedBooks(initSelected);
-
-      } else if (scanMode === 'isbn') {
-        const prompt = `Identify the ISBN-10 or ISBN-13 barcode/number, title, and author if visible on this book cover or barcode.`;
-
-        const schema = {
-          type: 'OBJECT',
-          properties: {
-            title: { type: 'STRING' },
-            author: { type: 'STRING' },
-            isbn: { type: 'STRING' },
-          },
-          required: ['title'],
-        };
-
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
-        if (res.title) {
-          const b: Book = {
-            id: Date.now().toString(),
-            title: res.title,
-            author: res.author,
-            isbn: res.isbn,
-          };
-          setDetectedBooks([b]);
-          setSelectedBooks({ [b.id]: true });
-        }
       }
     } catch (err: any) {
       console.error(err);
@@ -404,37 +351,28 @@ export default function App() {
                 <input
                   type="radio"
                   name="scanMode"
-                  checked={scanMode === 'wishlist_shelf'}
-                  onChange={() => setScanMode('wishlist_shelf')}
+                  checked={scanMode === 'search_shelf'}
+                  onChange={() => setScanMode('search_shelf')}
                 />
-                Match Shelf to Wishlist
+                <strong>🔍 Search Shelf</strong> (Match against Wishlist)
               </label>
               <label style={styles.radioLabel}>
                 <input
                   type="radio"
                   name="scanMode"
-                  checked={scanMode === 'screenshot_wishlist'}
-                  onChange={() => setScanMode('screenshot_wishlist')}
+                  checked={scanMode === 'add_wishlist'}
+                  onChange={() => setScanMode('add_wishlist')}
                 />
-                Screenshot to Wishlist 📸
+                <strong>⭐ Add to Wishlist</strong> (Photo, Barcode/ISBN, or Screenshot)
               </label>
               <label style={styles.radioLabel}>
                 <input
                   type="radio"
                   name="scanMode"
-                  checked={scanMode === 'library_shelf'}
-                  onChange={() => setScanMode('library_shelf')}
+                  checked={scanMode === 'add_library'}
+                  onChange={() => setScanMode('add_library')}
                 />
-                Scan Shelf to Library
-              </label>
-              <label style={styles.radioLabel}>
-                <input
-                  type="radio"
-                  name="scanMode"
-                  checked={scanMode === 'isbn'}
-                  onChange={() => setScanMode('isbn')}
-                />
-                Scan Barcode / ISBN
+                <strong>📚 Add to Library</strong> (Photo, Barcode/ISBN, or Shelf)
               </label>
             </div>
 
@@ -455,7 +393,7 @@ export default function App() {
               style={{ display: 'none' }}
             />
 
-            {/* Separate Camera and Upload Buttons */}
+            {/* Action Buttons */}
             <div style={styles.buttonRow}>
               <button
                 onClick={() => cameraInputRef.current?.click()}
@@ -469,7 +407,7 @@ export default function App() {
                 disabled={loading}
                 style={styles.secondaryBtn}
               >
-                🖼️ Upload Screenshot / Image
+                🖼️ Upload Image / Screenshot
               </button>
             </div>
 
@@ -479,7 +417,7 @@ export default function App() {
                 disabled={loading}
                 style={{ ...styles.primaryBtn, width: '100%', marginTop: '8px', opacity: loading ? 0.6 : 1 }}
               >
-                {loading ? 'Analyzing Spines with AI...' : 'Run Scan'}
+                {loading ? 'Analyzing with AI...' : 'Run Scan'}
               </button>
             )}
 
@@ -526,7 +464,7 @@ export default function App() {
                 {!loading && detectedBooks.length > 0 && (
                   <div style={styles.resultsBox}>
                     <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
-                      Found {detectedBooks.length} Book(s):
+                      Detected {detectedBooks.length} Book(s):
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
                       {detectedBooks.map((b) => (
@@ -538,13 +476,14 @@ export default function App() {
                           />
                           <div>
                             <strong>{b.title}</strong> {b.author && <span style={styles.subtext}>by {b.author}</span>}
+                            {b.isbn && <span style={styles.subtext}> (ISBN: {b.isbn})</span>}
                           </div>
                         </label>
                       ))}
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                      {scanMode === 'screenshot_wishlist' ? (
+                      {scanMode === 'add_wishlist' ? (
                         <button
                           onClick={() => handleImportSelected('wishlist')}
                           style={{ ...styles.primaryBtn, width: '100%' }}
@@ -760,7 +699,7 @@ const styles: Record<string, React.CSSProperties> = {
   modeSelector: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '10px',
     backgroundColor: '#1e293b',
     padding: '12px',
     borderRadius: '8px',
