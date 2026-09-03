@@ -308,7 +308,7 @@ export default function App() {
 
   const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -366,7 +366,14 @@ export default function App() {
 
       <div style={styles.card}>
         <header style={styles.header}>
-          <h1 style={styles.title}>📚 ShelfScan AI</h1>
+          <div style={styles.brandContainer}>
+            <img 
+              src="/apple-icon-180x180.png" 
+              alt="ShelfScan AI Logo" 
+              style={styles.headerIcon} 
+            />
+            <h1 style={styles.title}>ShelfScan AI</h1>
+          </div>
           <nav style={styles.nav}>
             <button
               onClick={() => setActiveTab('scan')}
@@ -716,6 +723,17 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     borderBottom: '1px solid #334155',
     paddingBottom: '12px',
+  },
+  brandContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  headerIcon: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '6px',
+    objectFit: 'cover',
   },
   title: { margin: 0, color: '#10b981', fontSize: '20px' },
   nav: { display: 'flex', gap: '8px' },
