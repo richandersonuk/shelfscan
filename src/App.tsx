@@ -116,6 +116,7 @@ export default function App() {
       setError(null);
     };
     reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input target so re-selecting same photo triggers onChange
   };
 
   const compressImage = (base64DataUrl: string, maxWidth = 1280): Promise<string> => {
@@ -206,7 +207,6 @@ export default function App() {
         setMatches(res.matches || []);
 
       } else {
-        // MODE: Add to Wishlist OR Add to Library (handles single cover, barcode/ISBN, bookshelf, or screenshot)
         const prompt = `
           Analyze this image to extract book information.
           It could be a book cover, book spine, rear cover with a barcode/ISBN, a full bookshelf, or a screenshot containing a list of books.
@@ -255,7 +255,7 @@ export default function App() {
 
   const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
