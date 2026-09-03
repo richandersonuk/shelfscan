@@ -41,6 +41,8 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
+  // Dedicated File & Camera Inputs
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // LocalStorage Persistence
@@ -235,7 +237,6 @@ export default function App() {
           author: b.author,
         }));
         setDetectedBooks(parsedBooks);
-        // Pre-select all by default
         const initSelected: Record<string, boolean> = {};
         parsedBooks.forEach((b) => (initSelected[b.id] = true));
         setSelectedBooks(initSelected);
@@ -307,7 +308,7 @@ export default function App() {
 
   const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -430,32 +431,50 @@ export default function App() {
               </label>
             </div>
 
+            {/* Hidden Inputs */}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              ref={cameraInputRef}
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
+            <input
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
+
+            {/* Separate Camera and Upload Buttons */}
             <div style={styles.buttonRow}>
-              <input
-                type="file"
-                accept="image/*"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                style={{ display: 'none' }}
-              />
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={loading}
+                style={styles.primaryBtn}
+              >
+                📷 Take Photo
+              </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
                 style={styles.secondaryBtn}
               >
-                {imageSrc ? 'Retake / Change Photo' : '📷 Take / Upload Photo'}
+                🖼️ Upload Screenshot / Image
               </button>
-
-              {imageSrc && (
-                <button
-                  onClick={handleScan}
-                  disabled={loading}
-                  style={{ ...styles.primaryBtn, opacity: loading ? 0.6 : 1 }}
-                >
-                  {loading ? 'Analyzing Spines...' : 'Run Scan'}
-                </button>
-              )}
             </div>
+
+            {imageSrc && (
+              <button
+                onClick={handleScan}
+                disabled={loading}
+                style={{ ...styles.primaryBtn, width: '100%', marginTop: '8px', opacity: loading ? 0.6 : 1 }}
+              >
+                {loading ? 'Analyzing Spines with AI...' : 'Run Scan'}
+              </button>
+            )}
 
             {error && <div style={styles.errorBox}>{error}</div>}
 
@@ -545,8 +564,6 @@ export default function App() {
         {activeTab === 'wishlist' && (
           <div style={styles.section}>
             <h2>My Wishlist</h2>
-            
-            {/* MANUAL ENTRY WITH AUTOCOMPLETE */}
             <div style={styles.addForm}>
               <div style={{ position: 'relative' }}>
                 <input
@@ -557,7 +574,6 @@ export default function App() {
                 />
                 {isSearching && <span style={styles.searchingBadge}>Searching...</span>}
 
-                {/* Auto-complete Suggestions Dropdown */}
                 {suggestions.length > 0 && (
                   <div style={styles.dropdown}>
                     {suggestions.map((s, idx) => (
@@ -734,6 +750,7 @@ const styles: Record<string, React.CSSProperties> = {
   radioLabel: { fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' },
   buttonRow: { display: 'flex', gap: '8px' },
   primaryBtn: {
+    flex: 1,
     padding: '10px 16px',
     borderRadius: '6px',
     border: 'none',
@@ -744,6 +761,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
   },
   secondaryBtn: {
+    flex: 1,
     padding: '10px 16px',
     borderRadius: '6px',
     border: '1px solid #334155',
