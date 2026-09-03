@@ -22,8 +22,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Removed Node types */
-    "types": []
+    /* Include Vite client types for import.meta.env and exclude node */
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }
