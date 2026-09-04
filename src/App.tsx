@@ -20,7 +20,10 @@ interface Suggestion {
   author: string;
 }
 
+type ThemeMode = 'dark' | 'purple' | 'light';
+
 interface RecSettings {
+  theme: ThemeMode;
   wishlistAuthorRecs: boolean;
   libraryAuthorRecs: boolean;
   tasteRecs: boolean;
@@ -40,17 +43,18 @@ export default function App() {
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Settings State with Custom Colors
+  // Settings State with Theme and Custom Colors
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [recSettings, setRecSettings] = useState<RecSettings>({
+    theme: 'dark',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
     tasteRecs: true,
     colors: {
-      wishlist_match: '#10b981', // Emerald Green
-      wishlist_author: '#f59e0b', // Amber
-      library_author: '#3b82f6',  // Blue
-      taste_match: '#a855f7',     // Purple
+      wishlist_match: '#10b981',
+      wishlist_author: '#f59e0b',
+      library_author: '#3b82f6',
+      taste_match: '#a855f7',
     },
   });
 
@@ -89,8 +93,8 @@ export default function App() {
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
-      // Fallback colors if updating from older settings schema
       setRecSettings({
+        theme: 'dark',
         ...parsed,
         colors: {
           wishlist_match: '#10b981',
@@ -114,6 +118,48 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shelfscan_settings', JSON.stringify(recSettings));
   }, [recSettings]);
+
+  // Dynamic Theme Palette Generator
+  const getThemeStyles = () => {
+    switch (recSettings.theme) {
+      case 'purple':
+        return {
+          bg: '#11092b',
+          cardBg: '#1d1242',
+          cardSubBg: '#0b051d',
+          border: '#3b2875',
+          text: '#f3e8ff',
+          subtext: '#c084fc',
+          accent: '#c084fc',
+          btnText: '#11092b',
+        };
+      case 'light':
+        return {
+          bg: '#f8fafc',
+          cardBg: '#ffffff',
+          cardSubBg: '#f1f5f9',
+          border: '#cbd5e1',
+          text: '#0f172a',
+          subtext: '#64748b',
+          accent: '#0d9488',
+          btnText: '#ffffff',
+        };
+      case 'dark':
+      default:
+        return {
+          bg: '#0f172a',
+          cardBg: '#1e293b',
+          cardSubBg: '#0f172a',
+          border: '#334155',
+          text: '#f8fafc',
+          subtext: '#94a3b8',
+          accent: '#10b981',
+          btnText: '#0f172a',
+        };
+    }
+  };
+
+  const theme = getThemeStyles();
 
   // Open Library Auto-complete Debounce
   useEffect(() => {
@@ -208,6 +254,14 @@ export default function App() {
     setManualTitle('');
     setManualAuthor('');
     setSuggestions([]);
+  };
+
+  // Quick Add Single Book from Search Shelf Results directly to Library
+  const handleQuickAddToLibrary = (title: string) => {
+    const exists = library.some((b) => b.title.toLowerCase() === title.toLowerCase());
+    if (!exists) {
+      setLibrary([...library, { id: Date.now().toString(), title }]);
+    }
   };
 
   // Main Gemini Scan
@@ -358,7 +412,6 @@ export default function App() {
     setImageSrc(null);
   };
 
-  // Helper for color pickers
   const handleColorChange = (key: keyof RecSettings['colors'], colorHex: string) => {
     setRecSettings((prev) => ({
       ...prev,
@@ -385,7 +438,7 @@ export default function App() {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, backgroundColor: theme.bg, color: theme.text }}>
       <style>{`
         @keyframes scanBeam {
           0% { top: 0%; opacity: 0.8; }
@@ -399,57 +452,98 @@ export default function App() {
       `}</style>
 
       <div style={styles.card}>
-        <header style={styles.header}>
+        <header style={{ ...styles.header, borderColor: theme.border }}>
           <div style={styles.brandContainer}>
-            <div style={styles.headerIconBadge}>📚</div>
-            <h1 style={styles.title}>ShelfScan AI</h1>
+            <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>📚</div>
+            <h1 style={{ ...styles.title, color: theme.accent }}>ShelfScan AI</h1>
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <nav style={styles.nav}>
               <button
                 onClick={() => setActiveTab('scan')}
-                style={activeTab === 'scan' ? styles.activeNavBtn : styles.navBtn}
+                style={activeTab === 'scan' ? { ...styles.activeNavBtn, backgroundColor: theme.accent, color: theme.btnText } : { ...styles.navBtn, backgroundColor: theme.cardBg, color: theme.subtext }}
               >
                 Scan
               </button>
               <button
                 onClick={() => setActiveTab('wishlist')}
-                style={activeTab === 'wishlist' ? styles.activeNavBtn : styles.navBtn}
+                style={activeTab === 'wishlist' ? { ...styles.activeNavBtn, backgroundColor: theme.accent, color: theme.btnText } : { ...styles.navBtn, backgroundColor: theme.cardBg, color: theme.subtext }}
               >
                 Wishlist ({wishlist.length})
               </button>
               <button
                 onClick={() => setActiveTab('library')}
-                style={activeTab === 'library' ? styles.activeNavBtn : styles.navBtn}
+                style={activeTab === 'library' ? { ...styles.activeNavBtn, backgroundColor: theme.accent, color: theme.btnText } : { ...styles.navBtn, backgroundColor: theme.cardBg, color: theme.subtext }}
               >
                 Library ({library.length})
               </button>
             </nav>
             <button 
               onClick={() => setShowSettings(!showSettings)} 
-              style={styles.settingsBtn}
-              title="Recommendation Settings"
+              style={{ ...styles.settingsBtn, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
+              title="Settings"
             >
               ⚙️
             </button>
           </div>
         </header>
 
-        {/* SETTINGS PANEL WITH COLOR PICKERS */}
+        {/* SETTINGS PANEL WITH THEMES AND COLOR PICKERS */}
         {showSettings && (
-          <div style={styles.settingsModal}>
+          <div style={{ ...styles.settingsModal, backgroundColor: theme.cardBg, borderColor: theme.border }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: '#10b981' }}>Settings & Colors</h3>
+              <h3 style={{ margin: 0, color: theme.accent }}>Settings</h3>
               <button onClick={() => setShowSettings(false)} style={styles.deleteBtn}>✕</button>
             </div>
-            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 12px 0' }}>
+
+            {/* THEME CUSTOMIZATION */}
+            <div style={{ margin: '12px 0', borderBottom: `1px solid ${theme.border}`, paddingBottom: '12px' }}>
+              <strong style={{ fontSize: '13px', display: 'block', marginBottom: '6px' }}>App Theme:</strong>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setRecSettings({ ...recSettings, theme: 'dark' })}
+                  style={{
+                    ...styles.themeBtn,
+                    backgroundColor: '#0f172a',
+                    color: '#f8fafc',
+                    border: recSettings.theme === 'dark' ? '2px solid #10b981' : '1px solid #334155',
+                  }}
+                >
+                  Slate / Dark
+                </button>
+                <button
+                  onClick={() => setRecSettings({ ...recSettings, theme: 'purple' })}
+                  style={{
+                    ...styles.themeBtn,
+                    backgroundColor: '#11092b',
+                    color: '#f3e8ff',
+                    border: recSettings.theme === 'purple' ? '2px solid #c084fc' : '1px solid #3b2875',
+                  }}
+                >
+                  Purple
+                </button>
+                <button
+                  onClick={() => setRecSettings({ ...recSettings, theme: 'light' })}
+                  style={{
+                    ...styles.themeBtn,
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    border: recSettings.theme === 'light' ? '2px solid #0d9488' : '1px solid #cbd5e1',
+                  }}
+                >
+                  Paper / Light
+                </button>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '12px', color: theme.subtext, margin: '4px 0 12px 0' }}>
               Customise scanning rules and target highlighting colours:
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {/* WISHLIST MATCH COLOR */}
-              <div style={styles.settingRow}>
+              <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                   <input
                     type="color"
@@ -459,13 +553,13 @@ export default function App() {
                   />
                   <div>
                     <strong style={{ fontSize: '13px' }}>Wishlist Match</strong>
-                    <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Exact title matches</span>
+                    <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Exact title matches</span>
                   </div>
                 </div>
               </div>
 
               {/* WISHLIST AUTHOR TOGGLE & COLOR */}
-              <div style={styles.settingRow}>
+              <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <input
                   type="checkbox"
                   checked={recSettings.wishlistAuthorRecs}
@@ -479,12 +573,12 @@ export default function App() {
                 />
                 <div style={{ flex: 1 }}>
                   <strong style={{ fontSize: '13px' }}>Wishlist Authors</strong>
-                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Unowned books by wishlist authors</span>
+                  <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Unowned books by wishlist authors</span>
                 </div>
               </div>
 
               {/* LIBRARY AUTHOR TOGGLE & COLOR */}
-              <div style={styles.settingRow}>
+              <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <input
                   type="checkbox"
                   checked={recSettings.libraryAuthorRecs}
@@ -498,12 +592,12 @@ export default function App() {
                 />
                 <div style={{ flex: 1 }}>
                   <strong style={{ fontSize: '13px' }}>Library Authors</strong>
-                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Unowned books by owned authors</span>
+                  <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Unowned books by owned authors</span>
                 </div>
               </div>
 
               {/* TASTE MATCH TOGGLE & COLOR */}
-              <div style={styles.settingRow}>
+              <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <input
                   type="checkbox"
                   checked={recSettings.tasteRecs}
@@ -517,7 +611,7 @@ export default function App() {
                 />
                 <div style={{ flex: 1 }}>
                   <strong style={{ fontSize: '13px' }}>Taste Match</strong>
-                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Recommendations matching general taste</span>
+                  <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Recommendations matching general taste</span>
                 </div>
               </div>
             </div>
@@ -527,7 +621,7 @@ export default function App() {
         {/* SCANNER TAB */}
         {activeTab === 'scan' && (
           <div style={styles.section}>
-            <div style={styles.modeSelector}>
+            <div style={{ ...styles.modeSelector, backgroundColor: theme.cardBg }}>
               <label style={styles.radioLabel}>
                 <input
                   type="radio"
@@ -579,14 +673,14 @@ export default function App() {
               <button
                 onClick={() => cameraInputRef.current?.click()}
                 disabled={loading}
-                style={styles.primaryBtn}
+                style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText }}
               >
                 📷 Take Photo
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
-                style={styles.secondaryBtn}
+                style={{ ...styles.secondaryBtn, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               >
                 🖼️ Upload Image / Screenshot
               </button>
@@ -596,7 +690,7 @@ export default function App() {
               <button
                 onClick={handleScan}
                 disabled={loading}
-                style={{ ...styles.primaryBtn, width: '100%', marginTop: '8px', opacity: loading ? 0.6 : 1 }}
+                style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText, width: '100%', marginTop: '8px', opacity: loading ? 0.6 : 1 }}
               >
                 {loading ? 'Analyzing with AI...' : 'Run Scan'}
               </button>
@@ -612,8 +706,8 @@ export default function App() {
 
                   {loading && (
                     <>
-                      <div style={styles.laserLine} />
-                      <div style={styles.scanOverlayText}>
+                      <div style={{ ...styles.laserLine, backgroundColor: theme.accent }} />
+                      <div style={{ ...styles.scanOverlayText, borderColor: theme.accent, color: theme.accent }}>
                         Scanning with AI...
                       </div>
                     </>
@@ -637,7 +731,7 @@ export default function App() {
 
                     return (
                       <div key={idx} style={boxStyle}>
-                        <span style={{ ...styles.badge, backgroundColor: color }}>
+                        <span style={{ ...styles.badge, backgroundColor: color, color: '#0f172a' }}>
                           {match.matchedWishlistItem || match.detectedSpineTitle}
                         </span>
                       </div>
@@ -645,24 +739,45 @@ export default function App() {
                   })}
                 </div>
 
-                {/* DETECTED MATCHES OR BOOKS CHECKLIST */}
+                {/* DETECTED MATCHES WITH INSTANT ADD-TO-LIBRARY BUTTON */}
                 {!loading && matches.length > 0 && scanMode === 'search_shelf' && (
-                  <div style={styles.resultsBox}>
-                    <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
+                  <div style={{ ...styles.resultsBox, backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                    <h3 style={{ color: theme.accent, margin: '0 0 8px 0' }}>
                       Shelf Results ({matches.length}):
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
                       {matches.map((m, idx) => {
                         const color = getColorForRecType(m.recommendationType);
+                        const itemTitle = m.matchedWishlistItem || m.detectedSpineTitle;
+                        const isOwned = library.some((b) => b.title.toLowerCase() === itemTitle.toLowerCase());
+
                         return (
-                          <div key={idx} style={{ ...styles.matchResultCard, borderLeft: `4px solid ${color}` }}>
+                          <div key={idx} style={{ ...styles.matchResultCard, backgroundColor: theme.cardSubBg, borderLeft: `4px solid ${color}` }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <strong>{m.matchedWishlistItem || m.detectedSpineTitle}</strong>
-                              <span style={{ ...styles.typePill, backgroundColor: color }}>
-                                {getLabelForRecType(m.recommendationType)}
-                              </span>
+                              <div>
+                                <strong>{itemTitle}</strong>
+                                {m.reason && <div style={{ fontSize: '11px', color: theme.subtext, marginTop: '2px' }}>{m.reason}</div>}
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ ...styles.typePill, backgroundColor: color }}>
+                                  {getLabelForRecType(m.recommendationType)}
+                                </span>
+
+                                <button
+                                  onClick={() => handleQuickAddToLibrary(itemTitle)}
+                                  disabled={isOwned}
+                                  style={{
+                                    ...styles.quickAddBtn,
+                                    backgroundColor: isOwned ? theme.border : theme.accent,
+                                    color: isOwned ? theme.subtext : theme.btnText,
+                                  }}
+                                  title="Add to Library"
+                                >
+                                  {isOwned ? '✓ Owned' : '+ Library'}
+                                </button>
+                              </div>
                             </div>
-                            {m.reason && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{m.reason}</div>}
                           </div>
                         );
                       })}
@@ -671,21 +786,21 @@ export default function App() {
                 )}
 
                 {!loading && detectedBooks.length > 0 && scanMode !== 'search_shelf' && (
-                  <div style={styles.resultsBox}>
-                    <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
+                  <div style={{ ...styles.resultsBox, backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                    <h3 style={{ color: theme.accent, margin: '0 0 8px 0' }}>
                       Detected {detectedBooks.length} Book(s):
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
                       {detectedBooks.map((b) => (
-                        <label key={b.id} style={styles.checkItem}>
+                        <label key={b.id} style={{ ...styles.checkItem, backgroundColor: theme.cardSubBg }}>
                           <input
                             type="checkbox"
                             checked={!!selectedBooks[b.id]}
                             onChange={() => toggleSelectBook(b.id)}
                           />
                           <div>
-                            <strong>{b.title}</strong> {b.author && <span style={styles.subtext}>by {b.author}</span>}
-                            {b.isbn && <span style={styles.subtext}> (ISBN: {b.isbn})</span>}
+                            <strong>{b.title}</strong> {b.author && <span style={{ fontSize: '12px', color: theme.subtext }}>by {b.author}</span>}
+                            {b.isbn && <span style={{ fontSize: '12px', color: theme.subtext }}> (ISBN: {b.isbn})</span>}
                           </div>
                         </label>
                       ))}
@@ -695,14 +810,14 @@ export default function App() {
                       {scanMode === 'add_wishlist' ? (
                         <button
                           onClick={() => handleImportSelected('wishlist')}
-                          style={{ ...styles.primaryBtn, width: '100%' }}
+                          style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText, width: '100%' }}
                         >
                           Add Selected to Wishlist
                         </button>
                       ) : (
                         <button
                           onClick={() => handleImportSelected('library')}
-                          style={{ ...styles.primaryBtn, width: '100%' }}
+                          style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText, width: '100%' }}
                         >
                           Add Selected to Library
                         </button>
@@ -725,20 +840,20 @@ export default function App() {
                   placeholder="Book Title (Type to search...)"
                   value={manualTitle}
                   onChange={(e) => setManualTitle(e.target.value)}
-                  style={styles.input}
+                  style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
-                {isSearching && <span style={styles.searchingBadge}>Searching...</span>}
+                {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
 
                 {suggestions.length > 0 && (
-                  <div style={styles.dropdown}>
+                  <div style={{ ...styles.dropdown, backgroundColor: theme.cardBg, borderColor: theme.border }}>
                     {suggestions.map((s, idx) => (
                       <div
                         key={idx}
                         onClick={() => handleSelectSuggestion(s)}
-                        style={styles.dropdownItem}
+                        style={{ ...styles.dropdownItem, borderColor: theme.border }}
                       >
                         <strong>{s.title}</strong>
-                        <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>
+                        <span style={{ fontSize: '11px', color: theme.subtext, display: 'block' }}>
                           by {s.author}
                         </span>
                       </div>
@@ -751,19 +866,19 @@ export default function App() {
                 placeholder="Author (Optional)"
                 value={manualAuthor}
                 onChange={(e) => setManualAuthor(e.target.value)}
-                style={styles.input}
+                style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
-              <button onClick={() => handleAddManual('wishlist')} style={styles.primaryBtn}>
+              <button onClick={() => handleAddManual('wishlist')} style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText }}>
                 Add to Wishlist
               </button>
             </div>
 
             <ul style={styles.list}>
               {wishlist.map((b) => (
-                <li key={b.id} style={styles.listItem}>
+                <li key={b.id} style={{ ...styles.listItem, backgroundColor: theme.cardBg, borderColor: theme.border }}>
                   <div>
                     <strong>{b.title}</strong>
-                    {b.author && <span style={styles.subtext}> by {b.author}</span>}
+                    {b.author && <span style={{ fontSize: '12px', color: theme.subtext }}> by {b.author}</span>}
                   </div>
                   <button
                     onClick={() => setWishlist(wishlist.filter((item) => item.id !== b.id))}
@@ -787,20 +902,20 @@ export default function App() {
                   placeholder="Book Title (Type to search...)"
                   value={manualTitle}
                   onChange={(e) => setManualTitle(e.target.value)}
-                  style={styles.input}
+                  style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
-                {isSearching && <span style={styles.searchingBadge}>Searching...</span>}
+                {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
 
                 {suggestions.length > 0 && (
-                  <div style={styles.dropdown}>
+                  <div style={{ ...styles.dropdown, backgroundColor: theme.cardBg, borderColor: theme.border }}>
                     {suggestions.map((s, idx) => (
                       <div
                         key={idx}
                         onClick={() => handleSelectSuggestion(s)}
-                        style={styles.dropdownItem}
+                        style={{ ...styles.dropdownItem, borderColor: theme.border }}
                       >
                         <strong>{s.title}</strong>
-                        <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>
+                        <span style={{ fontSize: '11px', color: theme.subtext, display: 'block' }}>
                           by {s.author}
                         </span>
                       </div>
@@ -813,23 +928,23 @@ export default function App() {
                 placeholder="Author (Optional)"
                 value={manualAuthor}
                 onChange={(e) => setManualAuthor(e.target.value)}
-                style={styles.input}
+                style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
-              <button onClick={() => handleAddManual('library')} style={styles.primaryBtn}>
+              <button onClick={() => handleAddManual('library')} style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText }}>
                 Add to Library
               </button>
             </div>
 
             <ul style={styles.list}>
               {library.length === 0 ? (
-                <p style={styles.subtext}>No books in your library yet. Add manually or scan your bookshelf!</p>
+                <p style={{ color: theme.subtext, fontSize: '12px' }}>No books in your library yet. Add manually or scan your bookshelf!</p>
               ) : (
                 library.map((b) => (
-                  <li key={b.id} style={styles.listItem}>
+                  <li key={b.id} style={{ ...styles.listItem, backgroundColor: theme.cardBg, borderColor: theme.border }}>
                     <div>
                       <strong>{b.title}</strong>
-                      {b.author && <span style={styles.subtext}> by {b.author}</span>}
-                      {b.isbn && <div style={styles.subtext}>ISBN: {b.isbn}</div>}
+                      {b.author && <span style={{ fontSize: '12px', color: theme.subtext }}> by {b.author}</span>}
+                      {b.isbn && <div style={{ fontSize: '12px', color: theme.subtext }}>ISBN: {b.isbn}</div>}
                     </div>
                     <button
                       onClick={() => setLibrary(library.filter((item) => item.id !== b.id))}
@@ -851,12 +966,11 @@ export default function App() {
 const styles: Record<string, React.CSSProperties> = {
   container: {
     minHeight: '100vh',
-    backgroundColor: '#0f172a',
-    color: '#f8fafc',
     fontFamily: 'system-ui, -apple-system, sans-serif',
     padding: '16px',
     display: 'flex',
     justifyContent: 'center',
+    transition: 'background-color 0.2s ease',
   },
   card: {
     width: '100%',
@@ -869,7 +983,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottom: '1px solid #334155',
+    borderBottom: '1px solid',
     paddingBottom: '12px',
   },
   brandContainer: {
@@ -881,21 +995,18 @@ const styles: Record<string, React.CSSProperties> = {
     width: '28px',
     height: '28px',
     borderRadius: '6px',
-    backgroundColor: '#1e293b',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '16px',
-    border: '1px solid #334155',
+    border: '1px solid',
   },
-  title: { margin: 0, color: '#10b981', fontSize: '20px' },
+  title: { margin: 0, fontSize: '20px' },
   nav: { display: 'flex', gap: '8px' },
   navBtn: {
     padding: '6px 12px',
     borderRadius: '6px',
     border: 'none',
-    backgroundColor: '#1e293b',
-    color: '#94a3b8',
     cursor: 'pointer',
     fontSize: '12px',
   },
@@ -903,8 +1014,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '6px 12px',
     borderRadius: '6px',
     border: 'none',
-    backgroundColor: '#10b981',
-    color: '#0f172a',
     fontWeight: 'bold',
     cursor: 'pointer',
     fontSize: '12px',
@@ -912,23 +1021,27 @@ const styles: Record<string, React.CSSProperties> = {
   settingsBtn: {
     padding: '6px 10px',
     borderRadius: '6px',
-    border: '1px solid #334155',
-    backgroundColor: '#1e293b',
-    color: '#fff',
+    border: '1px solid',
     cursor: 'pointer',
     fontSize: '14px',
   },
   settingsModal: {
-    backgroundColor: '#1e293b',
     padding: '16px',
     borderRadius: '8px',
-    border: '1px solid #334155',
+    border: '1px solid',
+  },
+  themeBtn: {
+    flex: 1,
+    padding: '8px',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
   },
   settingRow: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    backgroundColor: '#0f172a',
     padding: '10px',
     borderRadius: '6px',
   },
@@ -944,7 +1057,6 @@ const styles: Record<string, React.CSSProperties> = {
   modeSelector: {
     display: 'flex',
     justifyContent: 'space-between',
-    backgroundColor: '#1e293b',
     padding: '12px',
     borderRadius: '8px',
   },
@@ -955,8 +1067,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '10px 16px',
     borderRadius: '6px',
     border: 'none',
-    backgroundColor: '#10b981',
-    color: '#0f172a',
     fontWeight: 'bold',
     cursor: 'pointer',
     fontSize: '13px',
@@ -965,9 +1075,7 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     padding: '10px 16px',
     borderRadius: '6px',
-    border: '1px solid #334155',
-    backgroundColor: '#334155',
-    color: '#fff',
+    border: '1px solid',
     cursor: 'pointer',
     fontSize: '13px',
   },
@@ -993,7 +1101,6 @@ const styles: Record<string, React.CSSProperties> = {
     left: '0',
     right: '0',
     height: '4px',
-    backgroundColor: '#10b981',
     boxShadow: '0 0 15px 4px rgba(16, 185, 129, 0.8)',
     animation: 'scanBeam 2s ease-in-out infinite',
     zIndex: 10,
@@ -1004,12 +1111,11 @@ const styles: Record<string, React.CSSProperties> = {
     left: '50%',
     transform: 'translateX(-50%)',
     backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    color: '#10b981',
     fontWeight: 'bold',
     fontSize: '12px',
     padding: '6px 16px',
     borderRadius: '20px',
-    border: '1px solid #10b981',
+    border: '1px solid',
     backdropFilter: 'blur(4px)',
     zIndex: 11,
     animation: 'pulseGlow 1.5s infinite',
@@ -1018,7 +1124,6 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: '-24px',
     left: '0',
-    color: '#0f172a',
     fontWeight: 'bold',
     fontSize: '11px',
     padding: '2px 6px',
@@ -1026,13 +1131,11 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
   },
   resultsBox: {
-    backgroundColor: '#1e293b',
     padding: '12px',
     borderRadius: '6px',
-    border: '1px solid #334155',
+    border: '1px solid',
   },
   matchResultCard: {
-    backgroundColor: '#0f172a',
     padding: '8px 10px',
     borderRadius: '4px',
     fontSize: '13px',
@@ -1045,11 +1148,19 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '4px',
     textTransform: 'uppercase',
   },
+  quickAddBtn: {
+    border: 'none',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
   checkItem: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    backgroundColor: '#0f172a',
     padding: '8px',
     borderRadius: '4px',
     fontSize: '13px',
@@ -1059,9 +1170,7 @@ const styles: Record<string, React.CSSProperties> = {
   input: {
     padding: '10px',
     borderRadius: '6px',
-    border: '1px solid #334155',
-    backgroundColor: '#1e293b',
-    color: '#fff',
+    border: '1px solid',
     fontSize: '14px',
     width: '100%',
     boxSizing: 'border-box',
@@ -1071,15 +1180,13 @@ const styles: Record<string, React.CSSProperties> = {
     right: '10px',
     top: '12px',
     fontSize: '11px',
-    color: '#10b981',
   },
   dropdown: {
     position: 'absolute',
     top: '100%',
     left: 0,
     right: 0,
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
+    border: '1px solid',
     borderRadius: '6px',
     zIndex: 20,
     marginTop: '4px',
@@ -1089,7 +1196,7 @@ const styles: Record<string, React.CSSProperties> = {
   dropdownItem: {
     padding: '8px 12px',
     cursor: 'pointer',
-    borderBottom: '1px solid #334155',
+    borderBottom: '1px solid',
     fontSize: '13px',
   },
   list: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' },
@@ -1097,12 +1204,10 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
     padding: '12px',
     borderRadius: '6px',
-    border: '1px solid #334155',
+    border: '1px solid',
   },
-  subtext: { color: '#94a3b8', fontSize: '12px' },
   deleteBtn: {
     background: 'none',
     border: 'none',
