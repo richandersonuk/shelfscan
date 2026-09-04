@@ -20,7 +20,7 @@ interface Suggestion {
   author: string;
 }
 
-type ThemeMode = 'dark' | 'purple' | 'light';
+type ThemeMode = 'dark' | 'purple' | 'light' | 'custom';
 
 interface RecSettings {
   theme: ThemeMode;
@@ -32,6 +32,13 @@ interface RecSettings {
     wishlist_author: string;
     library_author: string;
     taste_match: string;
+  };
+  customThemeColors: {
+    bg: string;
+    cardBg: string;
+    text: string;
+    accent: string;
+    border: string;
   };
 }
 
@@ -55,6 +62,13 @@ export default function App() {
       wishlist_author: '#f59e0b',
       library_author: '#3b82f6',
       taste_match: '#a855f7',
+    },
+    customThemeColors: {
+      bg: '#0f172a',
+      cardBg: '#1e293b',
+      text: '#f8fafc',
+      accent: '#10b981',
+      border: '#334155',
     },
   });
 
@@ -103,6 +117,14 @@ export default function App() {
           taste_match: '#a855f7',
           ...parsed.colors,
         },
+        customThemeColors: {
+          bg: '#0f172a',
+          cardBg: '#1e293b',
+          text: '#f8fafc',
+          accent: '#10b981',
+          border: '#334155',
+          ...parsed.customThemeColors,
+        },
       });
     }
   }, []);
@@ -122,6 +144,17 @@ export default function App() {
   // Dynamic Theme Palette Generator
   const getThemeStyles = () => {
     switch (recSettings.theme) {
+      case 'custom':
+        return {
+          bg: recSettings.customThemeColors.bg,
+          cardBg: recSettings.customThemeColors.cardBg,
+          cardSubBg: recSettings.customThemeColors.bg,
+          border: recSettings.customThemeColors.border,
+          text: recSettings.customThemeColors.text,
+          subtext: recSettings.customThemeColors.text + 'aa',
+          accent: recSettings.customThemeColors.accent,
+          btnText: recSettings.customThemeColors.bg,
+        };
       case 'purple':
         return {
           bg: '#11092b',
@@ -256,7 +289,6 @@ export default function App() {
     setSuggestions([]);
   };
 
-  // Quick Add Single Book from Search Shelf Results directly to Library
   const handleQuickAddToLibrary = (title: string) => {
     const exists = library.some((b) => b.title.toLowerCase() === title.toLowerCase());
     if (!exists) {
@@ -422,6 +454,16 @@ export default function App() {
     }));
   };
 
+  const handleCustomThemeColorChange = (key: keyof RecSettings['customThemeColors'], colorHex: string) => {
+    setRecSettings((prev) => ({
+      ...prev,
+      customThemeColors: {
+        ...prev.customThemeColors,
+        [key]: colorHex,
+      },
+    }));
+  };
+
   const getColorForRecType = (type?: string) => {
     if (!type || !(type in recSettings.colors)) return recSettings.colors.wishlist_match;
     return recSettings.colors[type as keyof RecSettings['colors']];
@@ -489,7 +531,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* SETTINGS PANEL WITH THEMES AND COLOR PICKERS */}
+        {/* SETTINGS PANEL */}
         {showSettings && (
           <div style={{ ...styles.settingsModal, backgroundColor: theme.cardBg, borderColor: theme.border }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -497,10 +539,10 @@ export default function App() {
               <button onClick={() => setShowSettings(false)} style={styles.deleteBtn}>✕</button>
             </div>
 
-            {/* THEME CUSTOMIZATION */}
+            {/* THEME CUSTOMIZATION SELECTOR */}
             <div style={{ margin: '12px 0', borderBottom: `1px solid ${theme.border}`, paddingBottom: '12px' }}>
               <strong style={{ fontSize: '13px', display: 'block', marginBottom: '6px' }}>App Theme:</strong>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setRecSettings({ ...recSettings, theme: 'dark' })}
                   style={{
@@ -510,7 +552,7 @@ export default function App() {
                     border: recSettings.theme === 'dark' ? '2px solid #10b981' : '1px solid #334155',
                   }}
                 >
-                  Slate / Dark
+                  Dark
                 </button>
                 <button
                   onClick={() => setRecSettings({ ...recSettings, theme: 'purple' })}
@@ -532,9 +574,79 @@ export default function App() {
                     border: recSettings.theme === 'light' ? '2px solid #0d9488' : '1px solid #cbd5e1',
                   }}
                 >
-                  Paper / Light
+                  Light
+                </button>
+                <button
+                  onClick={() => setRecSettings({ ...recSettings, theme: 'custom' })}
+                  style={{
+                    ...styles.themeBtn,
+                    backgroundColor: recSettings.customThemeColors.bg,
+                    color: recSettings.customThemeColors.text,
+                    border: recSettings.theme === 'custom' ? `2px solid ${recSettings.customThemeColors.accent}` : `1px solid ${theme.border}`,
+                  }}
+                >
+                  Custom 🎨
                 </button>
               </div>
+
+              {/* CUSTOM THEME COLOR PICKERS */}
+              {recSettings.theme === 'custom' && (
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: theme.cardSubBg, padding: '10px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Custom Interface Palette:</span>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <label style={styles.colorPickerLabel}>
+                      <input
+                        type="color"
+                        value={recSettings.customThemeColors.bg}
+                        onChange={(e) => handleCustomThemeColorChange('bg', e.target.value)}
+                        style={styles.colorPicker}
+                      />
+                      Background
+                    </label>
+
+                    <label style={styles.colorPickerLabel}>
+                      <input
+                        type="color"
+                        value={recSettings.customThemeColors.cardBg}
+                        onChange={(e) => handleCustomThemeColorChange('cardBg', e.target.value)}
+                        style={styles.colorPicker}
+                      />
+                      Card Surface
+                    </label>
+
+                    <label style={styles.colorPickerLabel}>
+                      <input
+                        type="color"
+                        value={recSettings.customThemeColors.text}
+                        onChange={(e) => handleCustomThemeColorChange('text', e.target.value)}
+                        style={styles.colorPicker}
+                      />
+                      Text
+                    </label>
+
+                    <label style={styles.colorPickerLabel}>
+                      <input
+                        type="color"
+                        value={recSettings.customThemeColors.accent}
+                        onChange={(e) => handleCustomThemeColorChange('accent', e.target.value)}
+                        style={styles.colorPicker}
+                      />
+                      Accent / Buttons
+                    </label>
+
+                    <label style={styles.colorPickerLabel}>
+                      <input
+                        type="color"
+                        value={recSettings.customThemeColors.border}
+                        onChange={(e) => handleCustomThemeColorChange('border', e.target.value)}
+                        style={styles.colorPicker}
+                      />
+                      Borders
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
 
             <p style={{ fontSize: '12px', color: theme.subtext, margin: '4px 0 12px 0' }}>
@@ -1031,10 +1143,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid',
   },
   themeBtn: {
-    flex: 1,
-    padding: '8px',
+    padding: '6px 10px',
     borderRadius: '6px',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 'bold',
     cursor: 'pointer',
   },
@@ -1045,10 +1156,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '10px',
     borderRadius: '6px',
   },
+  colorPickerLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '11px',
+    cursor: 'pointer',
+  },
   colorPicker: {
     border: 'none',
-    width: '28px',
-    height: '28px',
+    width: '26px',
+    height: '26px',
     borderRadius: '4px',
     backgroundColor: 'transparent',
     cursor: 'pointer',
