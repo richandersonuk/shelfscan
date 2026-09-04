@@ -8,14 +8,28 @@ interface Book {
 }
 
 interface MatchResult {
-  matchedWishlistItem: string;
+  matchedWishlistItem?: string;
   detectedSpineTitle: string;
+  recommendationType?: 'wishlist_match' | 'wishlist_author' | 'library_author' | 'taste_match';
+  reason?: string;
   box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0-1000
 }
 
 interface Suggestion {
   title: string;
   author: string;
+}
+
+interface RecSettings {
+  wishlistAuthorRecs: boolean;
+  libraryAuthorRecs: boolean;
+  tasteRecs: boolean;
+  colors: {
+    wishlist_match: string;
+    wishlist_author: string;
+    library_author: string;
+    taste_match: string;
+  };
 }
 
 export default function App() {
@@ -25,6 +39,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'wishlist' | 'library'>('scan');
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
+
+  // Settings State with Custom Colors
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [recSettings, setRecSettings] = useState<RecSettings>({
+    wishlistAuthorRecs: true,
+    libraryAuthorRecs: true,
+    tasteRecs: true,
+    colors: {
+      wishlist_match: '#10b981', // Emerald Green
+      wishlist_author: '#f59e0b', // Amber
+      library_author: '#3b82f6',  // Blue
+      taste_match: '#a855f7',     // Purple
+    },
+  });
 
   // Scan Mode State: 'search_shelf' | 'add_wishlist' | 'add_library'
   const [scanMode, setScanMode] = useState<'search_shelf' | 'add_wishlist' | 'add_library'>('search_shelf');
@@ -49,6 +77,7 @@ export default function App() {
   useEffect(() => {
     const savedWishlist = localStorage.getItem('shelfscan_wishlist');
     const savedLibrary = localStorage.getItem('shelfscan_library');
+    const savedSettings = localStorage.getItem('shelfscan_settings');
 
     if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     else setWishlist([
@@ -58,6 +87,20 @@ export default function App() {
     ]);
 
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      // Fallback colors if updating from older settings schema
+      setRecSettings({
+        ...parsed,
+        colors: {
+          wishlist_match: '#10b981',
+          wishlist_author: '#f59e0b',
+          library_author: '#3b82f6',
+          taste_match: '#a855f7',
+          ...parsed.colors,
+        },
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -67,6 +110,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shelfscan_library', JSON.stringify(library));
   }, [library]);
+
+  useEffect(() => {
+    localStorage.setItem('shelfscan_settings', JSON.stringify(recSettings));
+  }, [recSettings]);
 
   // Open Library Auto-complete Debounce
   useEffect(() => {
@@ -182,7 +229,19 @@ export default function App() {
 
       if (scanMode === 'search_shelf') {
         const wishlistTitles = wishlist.map((b) => b.title);
-        const prompt = `Match spines in image against wishlist: ${JSON.stringify(wishlistTitles)}. Return JSON matches with box_2d [ymin, xmin, ymax, xmax] 0-1000.`;
+        const wishlistAuthors = Array.from(new Set(wishlist.map((b) => b.author).filter(Boolean)));
+        const libraryAuthors = Array.from(new Set(library.map((b) => b.author).filter(Boolean)));
+        const libraryTitles = library.map((b) => b.title);
+
+        const prompt = `
+          Analyze the book spines on this shelf and return matches or recommendations in JSON based on these criteria:
+          1. Direct Wishlist Matches: Titles present in ${JSON.stringify(wishlistTitles)}. Set recommendationType to "wishlist_match".
+          ${recSettings.wishlistAuthorRecs ? `2. Wishlist Author Recs: Books on shelf written by these authors: ${JSON.stringify(wishlistAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "wishlist_author".` : ''}
+          ${recSettings.libraryAuthorRecs ? `3. Library Author Recs: Books on shelf written by these authors: ${JSON.stringify(libraryAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "library_author".` : ''}
+          ${recSettings.tasteRecs ? `4. Taste Match Recs: Books on shelf matching general reading taste based on wishlist (${JSON.stringify(wishlistTitles)}) and library (${JSON.stringify(libraryTitles)}). Set recommendationType to "taste_match".` : ''}
+
+          Return box_2d coordinates [ymin, xmin, ymax, xmax] normalized from 0-1000 for each match.
+        `;
 
         const schema = {
           type: 'OBJECT',
@@ -194,9 +253,11 @@ export default function App() {
                 properties: {
                   matchedWishlistItem: { type: 'STRING' },
                   detectedSpineTitle: { type: 'STRING' },
+                  recommendationType: { type: 'STRING' },
+                  reason: { type: 'STRING' },
                   box_2d: { type: 'ARRAY', items: { type: 'INTEGER' } },
                 },
-                required: ['matchedWishlistItem', 'detectedSpineTitle', 'box_2d'],
+                required: ['detectedSpineTitle', 'recommendationType', 'box_2d'],
               },
             },
           },
@@ -297,6 +358,32 @@ export default function App() {
     setImageSrc(null);
   };
 
+  // Helper for color pickers
+  const handleColorChange = (key: keyof RecSettings['colors'], colorHex: string) => {
+    setRecSettings((prev) => ({
+      ...prev,
+      colors: {
+        ...prev.colors,
+        [key]: colorHex,
+      },
+    }));
+  };
+
+  const getColorForRecType = (type?: string) => {
+    if (!type || !(type in recSettings.colors)) return recSettings.colors.wishlist_match;
+    return recSettings.colors[type as keyof RecSettings['colors']];
+  };
+
+  const getLabelForRecType = (type?: string) => {
+    switch (type) {
+      case 'wishlist_match': return 'Wishlist Match';
+      case 'wishlist_author': return 'Wishlist Author';
+      case 'library_author': return 'Library Author';
+      case 'taste_match': return 'Taste Match';
+      default: return 'Match';
+    }
+  };
+
   return (
     <div style={styles.container}>
       <style>{`
@@ -317,27 +404,125 @@ export default function App() {
             <div style={styles.headerIconBadge}>📚</div>
             <h1 style={styles.title}>ShelfScan AI</h1>
           </div>
-          <nav style={styles.nav}>
-            <button
-              onClick={() => setActiveTab('scan')}
-              style={activeTab === 'scan' ? styles.activeNavBtn : styles.navBtn}
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <nav style={styles.nav}>
+              <button
+                onClick={() => setActiveTab('scan')}
+                style={activeTab === 'scan' ? styles.activeNavBtn : styles.navBtn}
+              >
+                Scan
+              </button>
+              <button
+                onClick={() => setActiveTab('wishlist')}
+                style={activeTab === 'wishlist' ? styles.activeNavBtn : styles.navBtn}
+              >
+                Wishlist ({wishlist.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('library')}
+                style={activeTab === 'library' ? styles.activeNavBtn : styles.navBtn}
+              >
+                Library ({library.length})
+              </button>
+            </nav>
+            <button 
+              onClick={() => setShowSettings(!showSettings)} 
+              style={styles.settingsBtn}
+              title="Recommendation Settings"
             >
-              Scan
+              ⚙️
             </button>
-            <button
-              onClick={() => setActiveTab('wishlist')}
-              style={activeTab === 'wishlist' ? styles.activeNavBtn : styles.navBtn}
-            >
-              Wishlist ({wishlist.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('library')}
-              style={activeTab === 'library' ? styles.activeNavBtn : styles.navBtn}
-            >
-              Library ({library.length})
-            </button>
-          </nav>
+          </div>
         </header>
+
+        {/* SETTINGS PANEL WITH COLOR PICKERS */}
+        {showSettings && (
+          <div style={styles.settingsModal}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, color: '#10b981' }}>Settings & Colors</h3>
+              <button onClick={() => setShowSettings(false)} style={styles.deleteBtn}>✕</button>
+            </div>
+            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 12px 0' }}>
+              Customise scanning rules and target highlighting colours:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* WISHLIST MATCH COLOR */}
+              <div style={styles.settingRow}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                  <input
+                    type="color"
+                    value={recSettings.colors.wishlist_match}
+                    onChange={(e) => handleColorChange('wishlist_match', e.target.value)}
+                    style={styles.colorPicker}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '13px' }}>Wishlist Match</strong>
+                    <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Exact title matches</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* WISHLIST AUTHOR TOGGLE & COLOR */}
+              <div style={styles.settingRow}>
+                <input
+                  type="checkbox"
+                  checked={recSettings.wishlistAuthorRecs}
+                  onChange={(e) => setRecSettings({ ...recSettings, wishlistAuthorRecs: e.target.checked })}
+                />
+                <input
+                  type="color"
+                  value={recSettings.colors.wishlist_author}
+                  onChange={(e) => handleColorChange('wishlist_author', e.target.value)}
+                  style={styles.colorPicker}
+                />
+                <div style={{ flex: 1 }}>
+                  <strong style={{ fontSize: '13px' }}>Wishlist Authors</strong>
+                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Unowned books by wishlist authors</span>
+                </div>
+              </div>
+
+              {/* LIBRARY AUTHOR TOGGLE & COLOR */}
+              <div style={styles.settingRow}>
+                <input
+                  type="checkbox"
+                  checked={recSettings.libraryAuthorRecs}
+                  onChange={(e) => setRecSettings({ ...recSettings, libraryAuthorRecs: e.target.checked })}
+                />
+                <input
+                  type="color"
+                  value={recSettings.colors.library_author}
+                  onChange={(e) => handleColorChange('library_author', e.target.value)}
+                  style={styles.colorPicker}
+                />
+                <div style={{ flex: 1 }}>
+                  <strong style={{ fontSize: '13px' }}>Library Authors</strong>
+                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Unowned books by owned authors</span>
+                </div>
+              </div>
+
+              {/* TASTE MATCH TOGGLE & COLOR */}
+              <div style={styles.settingRow}>
+                <input
+                  type="checkbox"
+                  checked={recSettings.tasteRecs}
+                  onChange={(e) => setRecSettings({ ...recSettings, tasteRecs: e.target.checked })}
+                />
+                <input
+                  type="color"
+                  value={recSettings.colors.taste_match}
+                  onChange={(e) => handleColorChange('taste_match', e.target.value)}
+                  style={styles.colorPicker}
+                />
+                <div style={{ flex: 1 }}>
+                  <strong style={{ fontSize: '13px' }}>Taste Match</strong>
+                  <span style={{ fontSize: '11px', display: 'block', color: '#94a3b8' }}>Recommendations matching general taste</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* SCANNER TAB */}
         {activeTab === 'scan' && (
@@ -350,7 +535,7 @@ export default function App() {
                   checked={scanMode === 'search_shelf'}
                   onChange={() => setScanMode('search_shelf')}
                 />
-                <strong>🔍 Search Shelf</strong> (Match against Wishlist)
+                Search Shelf
               </label>
               <label style={styles.radioLabel}>
                 <input
@@ -359,7 +544,7 @@ export default function App() {
                   checked={scanMode === 'add_wishlist'}
                   onChange={() => setScanMode('add_wishlist')}
                 />
-                <strong>⭐ Add to Wishlist</strong> (Photo, Barcode/ISBN, or Screenshot)
+                Add to Wishlist
               </label>
               <label style={styles.radioLabel}>
                 <input
@@ -368,7 +553,7 @@ export default function App() {
                   checked={scanMode === 'add_library'}
                   onChange={() => setScanMode('add_library')}
                 />
-                <strong>📚 Add to Library</strong> (Photo, Barcode/ISBN, or Shelf)
+                Add to Library
               </label>
             </div>
 
@@ -436,28 +621,56 @@ export default function App() {
 
                   {!loading && matches.map((match, idx) => {
                     const [ymin, xmin, ymax, xmax] = match.box_2d;
+                    const color = getColorForRecType(match.recommendationType);
+
                     const boxStyle: React.CSSProperties = {
                       position: 'absolute',
                       top: `${ymin / 10}%`,
                       left: `${xmin / 10}%`,
                       height: `${(ymax - ymin) / 10}%`,
                       width: `${(xmax - xmin) / 10}%`,
-                      border: '3px solid #10b981',
-                      backgroundColor: 'rgba(16, 185, 129, 0.35)',
+                      border: `3px solid ${color}`,
+                      backgroundColor: `${color}33`,
                       boxSizing: 'border-box',
                       pointerEvents: 'none',
                     };
 
                     return (
                       <div key={idx} style={boxStyle}>
-                        <span style={styles.badge}>{match.matchedWishlistItem}</span>
+                        <span style={{ ...styles.badge, backgroundColor: color }}>
+                          {match.matchedWishlistItem || match.detectedSpineTitle}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
 
-                {/* DETECTED BOOKS CHECKLIST */}
-                {!loading && detectedBooks.length > 0 && (
+                {/* DETECTED MATCHES OR BOOKS CHECKLIST */}
+                {!loading && matches.length > 0 && scanMode === 'search_shelf' && (
+                  <div style={styles.resultsBox}>
+                    <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
+                      Shelf Results ({matches.length}):
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                      {matches.map((m, idx) => {
+                        const color = getColorForRecType(m.recommendationType);
+                        return (
+                          <div key={idx} style={{ ...styles.matchResultCard, borderLeft: `4px solid ${color}` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong>{m.matchedWishlistItem || m.detectedSpineTitle}</strong>
+                              <span style={{ ...styles.typePill, backgroundColor: color }}>
+                                {getLabelForRecType(m.recommendationType)}
+                              </span>
+                            </div>
+                            {m.reason && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{m.reason}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {!loading && detectedBooks.length > 0 && scanMode !== 'search_shelf' && (
                   <div style={styles.resultsBox}>
                     <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>
                       Detected {detectedBooks.length} Book(s):
@@ -696,16 +909,46 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontSize: '12px',
   },
+  settingsBtn: {
+    padding: '6px 10px',
+    borderRadius: '6px',
+    border: '1px solid #334155',
+    backgroundColor: '#1e293b',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '14px',
+  },
+  settingsModal: {
+    backgroundColor: '#1e293b',
+    padding: '16px',
+    borderRadius: '8px',
+    border: '1px solid #334155',
+  },
+  settingRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    backgroundColor: '#0f172a',
+    padding: '10px',
+    borderRadius: '6px',
+  },
+  colorPicker: {
+    border: 'none',
+    width: '28px',
+    height: '28px',
+    borderRadius: '4px',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+  },
   section: { display: 'flex', flexDirection: 'column', gap: '12px' },
   modeSelector: {
     display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
+    justifyContent: 'space-between',
     backgroundColor: '#1e293b',
     padding: '12px',
     borderRadius: '8px',
   },
-  radioLabel: { fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' },
+  radioLabel: { fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold' },
   buttonRow: { display: 'flex', gap: '8px' },
   primaryBtn: {
     flex: 1,
@@ -775,7 +1018,6 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: '-24px',
     left: '0',
-    backgroundColor: '#10b981',
     color: '#0f172a',
     fontWeight: 'bold',
     fontSize: '11px',
@@ -788,6 +1030,20 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px',
     borderRadius: '6px',
     border: '1px solid #334155',
+  },
+  matchResultCard: {
+    backgroundColor: '#0f172a',
+    padding: '8px 10px',
+    borderRadius: '4px',
+    fontSize: '13px',
+  },
+  typePill: {
+    color: '#0f172a',
+    fontWeight: 'bold',
+    fontSize: '10px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    textTransform: 'uppercase',
   },
   checkItem: {
     display: 'flex',
