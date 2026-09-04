@@ -558,8 +558,8 @@ export default function App() {
             <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
           </div>
           
-          <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <nav style={styles.nav}>
+          <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
+            <nav style={{ ...styles.nav, justifyContent: 'center', flex: 1 }}>
               <button
                 onClick={() => setActiveTab('scan')}
                 style={activeTab === 'scan' ? { ...styles.activeNavBtn, backgroundColor: theme.accent, color: theme.btnText } : { ...styles.navBtn, backgroundColor: theme.cardBg, color: theme.subtext }}
@@ -642,7 +642,7 @@ export default function App() {
             {/* THEME CUSTOMIZATION SELECTOR */}
             <div style={{ margin: '12px 0', borderBottom: `1px solid ${theme.border}`, paddingBottom: '12px' }}>
               <strong style={{ fontSize: '13px', display: 'block', marginBottom: '6px' }}>App Theme:</strong>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
                   onClick={() => setRecSettings({ ...recSettings, theme: 'dark' })}
                   style={{
@@ -749,24 +749,26 @@ export default function App() {
               )}
             </div>
 
+            <strong style={{ fontSize: '13px', display: 'block', marginBottom: '6px' }}>
+              Scanning Rules & Colours:
+            </strong>
             <p style={{ fontSize: '12px', color: theme.subtext, margin: '4px 0 12px 0' }}>
               Customise scanning rules and target highlighting colours:
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {/* WISHLIST MATCH COLOR */}
+              {/* WISHLIST MATCH COLOR (WITH SPACER FOR ALIGNMENT) */}
               <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                  <input
-                    type="color"
-                    value={recSettings.colors.wishlist_match}
-                    onChange={(e) => handleColorChange('wishlist_match', e.target.value)}
-                    style={styles.colorPicker}
-                  />
-                  <div>
-                    <strong style={{ fontSize: '13px' }}>Wishlist Match</strong>
-                    <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Exact title matches</span>
-                  </div>
+                <div style={{ width: '13px', visibility: 'hidden' }} />
+                <input
+                  type="color"
+                  value={recSettings.colors.wishlist_match}
+                  onChange={(e) => handleColorChange('wishlist_match', e.target.value)}
+                  style={styles.colorPicker}
+                />
+                <div style={{ flex: 1 }}>
+                  <strong style={{ fontSize: '13px' }}>Wishlist Match</strong>
+                  <span style={{ fontSize: '11px', display: 'block', color: theme.subtext }}>Exact title matches</span>
                 </div>
               </div>
 
