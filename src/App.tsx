@@ -12,7 +12,7 @@ interface MatchResult {
   detectedSpineTitle: string;
   recommendationType?: 'wishlist_match' | 'wishlist_author' | 'library_author' | 'taste_match';
   reason?: string;
-  box_2d: [number, number, number, number];
+  box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0-1000
 }
 
 interface Suggestion {
@@ -72,7 +72,7 @@ export default function App() {
     },
   });
 
-  // Scan Mode State
+  // Scan Mode State: 'search_shelf' | 'add_wishlist' | 'add_library'
   const [scanMode, setScanMode] = useState<'search_shelf' | 'add_wishlist' | 'add_library'>('search_shelf');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -193,6 +193,53 @@ export default function App() {
   };
 
   const theme = getThemeStyles();
+
+  // Goodreads CSV Parser Helper
+  const parseGoodreadsCSV = (csvText: string): { wishlist: Book[]; library: Book[] } => {
+    const lines = csvText.split(/\r\n|\n/);
+    if (lines.length < 2) return { wishlist: [], library: [] };
+
+    const headers = lines[0].split(',').map((h) => h.replace(/^"|"$/g, '').trim().toLowerCase());
+    const titleIdx = headers.indexOf('title');
+    const authorIdx = headers.indexOf('author');
+    const shelfIdx = headers.indexOf('exclusive shelf');
+    const isbnIdx = headers.indexOf('isbn13');
+
+    const newWishlist: Book[] = [];
+    const newLibrary: Book[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+
+      const cols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(',');
+      if (!cols || cols.length === 0) continue;
+
+      const clean = (val?: string) => (val ? val.replace(/^"|"$/g, '').trim() : '');
+
+      const title = clean(cols[titleIdx]);
+      const author = clean(cols[authorIdx]);
+      const shelf = clean(cols[shelfIdx]);
+      const rawIsbn = clean(cols[isbnIdx]);
+      const isbn = rawIsbn.replace(/[^0-9X]/gi, '');
+
+      if (title) {
+        const bookItem: Book = {
+          id: Math.random().toString(),
+          title,
+          author: author || undefined,
+          isbn: isbn || undefined,
+        };
+
+        if (shelf === 'to-read') {
+          newWishlist.push(bookItem);
+        } else {
+          newLibrary.push(bookItem);
+        }
+      }
+    }
+
+    return { wishlist: newWishlist, library: newLibrary };
+  };
 
   // Open Library Auto-complete Debounce
   useEffect(() => {
@@ -491,7 +538,6 @@ export default function App() {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 0.7; }
         }
-        /* Stack header elements vertically on screens under 500px */
         @media (max-width: 500px) {
           .app-header {
             flex-direction: column !important;
@@ -543,12 +589,54 @@ export default function App() {
           </div>
         </header>
 
-        {/* SETTINGS PANEL */}
+        {/* SETTINGS PANEL WITH GOODREADS IMPORT */}
         {showSettings && (
           <div style={{ ...styles.settingsModal, backgroundColor: theme.cardBg, borderColor: theme.border }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, color: theme.accent }}>Settings</h3>
               <button onClick={() => setShowSettings(false)} style={styles.deleteBtn}>✕</button>
+            </div>
+
+            {/* GOODREADS IMPORT SECTION */}
+            <div style={{ margin: '12px 0', borderBottom: `1px solid ${theme.border}`, paddingBottom: '12px' }}>
+              <strong style={{ fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+                Import Goodreads Library:
+              </strong>
+              <span style={{ fontSize: '11px', color: theme.subtext, display: 'block', marginBottom: '8px' }}>
+                Upload your Goodreads export file (`.csv`) to import 'to-read' into Wishlist and 'read' into Library.
+              </span>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const content = event.target?.result as string;
+                    if (content) {
+                      const { wishlist: newW, library: newL } = parseGoodreadsCSV(content);
+                      setWishlist((prev) => [...prev, ...newW]);
+                      setLibrary((prev) => [...prev, ...newL]);
+                      alert(`Imported ${newW.length} wishlist books and ${newL.length} library books!`);
+                      setShowSettings(false);
+                    }
+                  };
+                  reader.readAsText(file);
+                  e.target.value = '';
+                }}
+                style={{
+                  fontSize: '12px',
+                  color: theme.text,
+                  backgroundColor: theme.cardSubBg,
+                  padding: '6px',
+                  borderRadius: '4px',
+                  border: `1px solid ${theme.border}`,
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
             </div>
 
             {/* THEME CUSTOMIZATION SELECTOR */}
