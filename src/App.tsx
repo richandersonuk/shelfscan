@@ -12,7 +12,7 @@ interface MatchResult {
   detectedSpineTitle: string;
   recommendationType?: 'wishlist_match' | 'wishlist_author' | 'library_author' | 'taste_match';
   reason?: string;
-  box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax] 0-1000
+  box_2d: [number, number, number, number];
 }
 
 interface Suggestion {
@@ -72,7 +72,7 @@ export default function App() {
     },
   });
 
-  // Scan Mode State: 'search_shelf' | 'add_wishlist' | 'add_library'
+  // Scan Mode State
   const [scanMode, setScanMode] = useState<'search_shelf' | 'add_wishlist' | 'add_library'>('search_shelf');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -491,16 +491,28 @@ export default function App() {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 0.7; }
         }
+        /* Stack header elements vertically on screens under 500px */
+        @media (max-width: 500px) {
+          .app-header {
+            flex-direction: column !important;
+            align-items: center !important;
+            gap: 12px !important;
+          }
+          .app-header-controls {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+        }
       `}</style>
 
       <div style={styles.card}>
-        <header style={{ ...styles.header, borderColor: theme.border }}>
+        <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
           <div style={styles.brandContainer}>
             <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>📚</div>
-            <h1 style={{ ...styles.title, color: theme.accent }}>ShelfScan AI</h1>
+            <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <nav style={styles.nav}>
               <button
                 onClick={() => setActiveTab('scan')}
