@@ -1,5 +1,5 @@
 // Incremented version to clear old cached assets
-const CACHE_NAME = 'shelfscan-v2.1';
+const CACHE_NAME = 'shelfscan-v2.2';
 
 const ASSETS_TO_CACHE = [
   '/',
