@@ -53,10 +53,10 @@ export default function App() {
   // Settings State with Theme and Custom Colors
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [recSettings, setRecSettings] = useState<RecSettings>({
-    theme: 'dark',
+    theme: 'light',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
-    tasteRecs: true,
+    tasteRecs: false,
     colors: {
       wishlist_match: '#10b981',
       wishlist_author: '#f59e0b',
@@ -100,15 +100,14 @@ export default function App() {
     if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     else setWishlist([
       { id: '1', title: 'Dune', author: 'Frank Herbert' },
-      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' },
-      { id: '3', title: 'Neuromancer', author: 'William Gibson' }
+      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' }
     ]);
 
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
       setRecSettings({
-        theme: 'dark',
+        theme: 'light',
         ...parsed,
         colors: {
           wishlist_match: '#10b981',
