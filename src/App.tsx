@@ -44,20 +44,26 @@ interface RecSettings {
 }
 
 export default function App() {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  // Safely collect API keys from environment variables
+  const apiKeys = [
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY,
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY_SECONDARY,
+  ].filter((key): key is string => Boolean(key && key.trim().length > 0));
+
+  const [activeKeyIdx, setActiveKeyIdx] = useState<number>(0);
 
   // App State
   const [activeTab, setActiveTab] = useState<'scan' | 'wishlist' | 'library'>('scan');
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Settings State with Theme and Custom Colors (Defaulting to Light Mode)
+  // Settings State (Defaulting to Light Theme)
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [recSettings, setRecSettings] = useState<RecSettings>({
     theme: 'light',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
-    tasteRecs: true,
+    tasteRecs: false,
     colors: {
       wishlist_match: '#10b981',
       wishlist_author: '#f59e0b',
@@ -73,7 +79,7 @@ export default function App() {
     },
   });
 
-  // Scan Mode State: 'search_shelf' | 'add_wishlist' | 'add_library'
+  // Scan Mode State
   const [scanMode, setScanMode] = useState<'search_shelf' | 'add_wishlist' | 'add_library'>('search_shelf');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -89,7 +95,7 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
-  // Dedicated File & Camera Inputs
+  // File & Camera Inputs
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -102,8 +108,7 @@ export default function App() {
     if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     else setWishlist([
       { id: '1', title: 'Dune', author: 'Frank Herbert' },
-      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' },
-      { id: '3', title: 'Neuromancer', author: 'William Gibson' }
+      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' }
     ]);
 
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
@@ -349,7 +354,6 @@ export default function App() {
     });
   };
 
-  // Add custom manual entry regardless of search matches
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
     const newBook: Book = {
@@ -378,10 +382,10 @@ export default function App() {
     }
   };
 
-  // Main Gemini Scan
+  // Resilient Gemini Scan Function with Automatic Quota Fallback
   const handleScan = async () => {
-    if (!apiKey) {
-      setError('VITE_GEMINI_API_KEY is not set in environment variables.');
+    if (apiKeys.length === 0) {
+      setError('No valid VITE_GEMINI_API_KEY environment variables found.');
       return;
     }
     if (!imageSrc) {
@@ -482,31 +486,56 @@ export default function App() {
     }
   };
 
-  const callGeminiAPI = async (prompt: string, base64Data: string, schema: any) => {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-            ],
-          }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: schema,
-          },
-        }),
-      }
-    );
+  const callGeminiAPI = async (prompt: string, base64Data: string, schema: any): Promise<any> => {
+    let currentIdx = activeKeyIdx;
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || 'API error');
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    return JSON.parse(text || '{}');
+    for (let attempt = 0; attempt < apiKeys.length; attempt++) {
+      const currentKey = apiKeys[currentIdx];
+
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+                ],
+              }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema: schema,
+              },
+            }),
+          }
+        );
+
+        const data = await res.json();
+        const isQuotaError =
+          res.status === 429 ||
+          data.error?.status === 'RESOURCE_EXHAUSTED' ||
+          data.error?.message?.toLowerCase().includes('quota');
+
+        if (!res.ok) {
+          if (isQuotaError && attempt < apiKeys.length - 1) {
+            console.warn(`Quota exceeded on key index ${currentIdx}. Retrying with secondary fallback key...`);
+            currentIdx = (currentIdx + 1) % apiKeys.length;
+            setActiveKeyIdx(currentIdx);
+            continue;
+          }
+          throw new Error(data.error?.message || `API error (${res.status})`);
+        }
+
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        return JSON.parse(text || '{}');
+
+      } catch (err: any) {
+        if (attempt === apiKeys.length - 1) throw err;
+      }
+    }
   };
 
   const toggleSelectBook = (id: string) => {
@@ -529,20 +558,14 @@ export default function App() {
   const handleColorChange = (key: keyof RecSettings['colors'], colorHex: string) => {
     setRecSettings((prev) => ({
       ...prev,
-      colors: {
-        ...prev.colors,
-        [key]: colorHex,
-      },
+      colors: { ...prev.colors, [key]: colorHex },
     }));
   };
 
   const handleCustomThemeColorChange = (key: keyof RecSettings['customThemeColors'], colorHex: string) => {
     setRecSettings((prev) => ({
       ...prev,
-      customThemeColors: {
-        ...prev.customThemeColors,
-        [key]: colorHex,
-      },
+      customThemeColors: { ...prev.customThemeColors, [key]: colorHex },
     }));
   };
 
@@ -590,7 +613,7 @@ export default function App() {
         <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
           <div style={styles.brandContainer}>
             <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>
-              <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '20px', height: '20px', display: 'block' }} />
+              <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '40px', height: '40px', display: 'block' }} />
             </div>
             <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
           </div>
@@ -794,7 +817,7 @@ export default function App() {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {/* WISHLIST MATCH COLOR (WITH SPACER FOR ALIGNMENT) */}
+              {/* WISHLIST MATCH COLOR (ALIGNED WITH SPACER) */}
               <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <div style={{ width: '13px', visibility: 'hidden' }} />
                 <input
