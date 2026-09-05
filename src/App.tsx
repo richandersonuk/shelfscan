@@ -1094,6 +1094,9 @@ export default function App() {
                     setSuggestions([]);
                     setManualTitle(e.target.value);
                   }}
+                  onBlur={() => {
+                    setTimeout(() => setSuggestions([]), 200);
+                  }}
                   style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
                 {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
@@ -1103,7 +1106,7 @@ export default function App() {
                     {suggestions.map((s, idx) => (
                       <div
                         key={idx}
-                        onClick={() => handleSelectSuggestion(s)}
+                        onMouseDown={() => handleSelectSuggestion(s)}
                         style={{ ...styles.dropdownItem, borderColor: theme.border }}
                       >
                         <strong>{s.title}</strong>
@@ -1119,6 +1122,7 @@ export default function App() {
               <input
                 placeholder="Author (Optional)"
                 value={manualAuthor}
+                onFocus={() => setSuggestions([])}
                 onChange={(e) => setManualAuthor(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
@@ -1128,6 +1132,7 @@ export default function App() {
                 inputMode="numeric"
                 placeholder="ISBN (Type or paste to search...)"
                 value={manualIsbn}
+                onFocus={() => setSuggestions([])}
                 onChange={(e) => setManualIsbn(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
@@ -1170,6 +1175,9 @@ export default function App() {
                     setSuggestions([]);
                     setManualTitle(e.target.value);
                   }}
+                  onBlur={() => {
+                    setTimeout(() => setSuggestions([]), 200);
+                  }}
                   style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
                 {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
@@ -1179,7 +1187,7 @@ export default function App() {
                     {suggestions.map((s, idx) => (
                       <div
                         key={idx}
-                        onClick={() => handleSelectSuggestion(s)}
+                        onMouseDown={() => handleSelectSuggestion(s)}
                         style={{ ...styles.dropdownItem, borderColor: theme.border }}
                       >
                         <strong>{s.title}</strong>
@@ -1195,6 +1203,7 @@ export default function App() {
               <input
                 placeholder="Author (Optional)"
                 value={manualAuthor}
+                onFocus={() => setSuggestions([])}
                 onChange={(e) => setManualAuthor(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
@@ -1204,6 +1213,7 @@ export default function App() {
                 inputMode="numeric"
                 placeholder="ISBN (Type or paste to search...)"
                 value={manualIsbn}
+                onFocus={() => setSuggestions([])}
                 onChange={(e) => setManualIsbn(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
