@@ -18,6 +18,7 @@ interface MatchResult {
 interface Suggestion {
   title: string;
   author: string;
+  isbn?: string;
 }
 
 type ThemeMode = 'dark' | 'purple' | 'light' | 'custom';
@@ -50,13 +51,13 @@ export default function App() {
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Settings State with Theme and Custom Colors
+  // Settings State with Theme and Custom Colors (Defaulting to Light Mode)
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [recSettings, setRecSettings] = useState<RecSettings>({
     theme: 'light',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
-    tasteRecs: false,
+    tasteRecs: true,
     colors: {
       wishlist_match: '#10b981',
       wishlist_author: '#f59e0b',
@@ -84,6 +85,7 @@ export default function App() {
   // Manual Form & Auto-complete State
   const [manualTitle, setManualTitle] = useState('');
   const [manualAuthor, setManualAuthor] = useState('');
+  const [manualIsbn, setManualIsbn] = useState('');
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
@@ -100,7 +102,8 @@ export default function App() {
     if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     else setWishlist([
       { id: '1', title: 'Dune', author: 'Frank Herbert' },
-      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' }
+      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' },
+      { id: '3', title: 'Neuromancer', author: 'William Gibson' }
     ]);
 
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
@@ -256,6 +259,7 @@ export default function App() {
           const results: Suggestion[] = data.docs.map((doc: any) => ({
             title: doc.title,
             author: doc.author_name ? doc.author_name[0] : 'Unknown Author',
+            isbn: doc.isbn ? doc.isbn[0] : undefined,
           }));
           setSuggestions(results);
         }
@@ -272,6 +276,7 @@ export default function App() {
   const handleSelectSuggestion = (s: Suggestion) => {
     setManualTitle(s.title);
     setManualAuthor(s.author);
+    if (s.isbn) setManualIsbn(s.isbn);
     setSuggestions([]);
   };
 
@@ -316,12 +321,14 @@ export default function App() {
     });
   };
 
+  // Add custom manual entry regardless of search matches
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
     const newBook: Book = {
       id: Date.now().toString(),
       title: manualTitle.trim(),
       author: manualAuthor.trim() || undefined,
+      isbn: manualIsbn.trim() || undefined,
     };
 
     if (target === 'wishlist') {
@@ -332,6 +339,7 @@ export default function App() {
 
     setManualTitle('');
     setManualAuthor('');
+    setManualIsbn('');
     setSuggestions([]);
   };
 
@@ -551,13 +559,14 @@ export default function App() {
       `}</style>
 
       <div style={styles.card}>
-      <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
-  <div style={styles.brandContainer}>
-    <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>
-      <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '40px', height: '40px', display: 'block' }} />
-    </div>
-    <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
-  </div>          
+        <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
+          <div style={styles.brandContainer}>
+            <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>
+              <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '20px', height: '20px', display: 'block' }} />
+            </div>
+            <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
+          </div>
+          
           <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
             <nav style={{ ...styles.nav, justifyContent: 'center', flex: 1 }}>
               <button
@@ -1068,7 +1077,7 @@ export default function App() {
                       >
                         <strong>{s.title}</strong>
                         <span style={{ fontSize: '11px', color: theme.subtext, display: 'block' }}>
-                          by {s.author}
+                          by {s.author} {s.isbn && `• ISBN: ${s.isbn}`}
                         </span>
                       </div>
                     ))}
@@ -1082,6 +1091,14 @@ export default function App() {
                 onChange={(e) => setManualAuthor(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
+
+              <input
+                placeholder="ISBN (Optional)"
+                value={manualIsbn}
+                onChange={(e) => setManualIsbn(e.target.value)}
+                style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
+              />
+
               <button onClick={() => handleAddManual('wishlist')} style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText }}>
                 Add to Wishlist
               </button>
@@ -1093,6 +1110,7 @@ export default function App() {
                   <div>
                     <strong>{b.title}</strong>
                     {b.author && <span style={{ fontSize: '12px', color: theme.subtext }}> by {b.author}</span>}
+                    {b.isbn && <div style={{ fontSize: '12px', color: theme.subtext }}>ISBN: {b.isbn}</div>}
                   </div>
                   <button
                     onClick={() => setWishlist(wishlist.filter((item) => item.id !== b.id))}
@@ -1130,7 +1148,7 @@ export default function App() {
                       >
                         <strong>{s.title}</strong>
                         <span style={{ fontSize: '11px', color: theme.subtext, display: 'block' }}>
-                          by {s.author}
+                          by {s.author} {s.isbn && `• ISBN: ${s.isbn}`}
                         </span>
                       </div>
                     ))}
@@ -1144,6 +1162,14 @@ export default function App() {
                 onChange={(e) => setManualAuthor(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
               />
+
+              <input
+                placeholder="ISBN (Optional)"
+                value={manualIsbn}
+                onChange={(e) => setManualIsbn(e.target.value)}
+                style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
+              />
+
               <button onClick={() => handleAddManual('library')} style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText }}>
                 Add to Library
               </button>
@@ -1212,7 +1238,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '16px',
     border: '1px solid',
   },
   title: { margin: 0, fontSize: '20px' },
