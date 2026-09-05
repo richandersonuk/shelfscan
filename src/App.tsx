@@ -552,12 +552,13 @@ export default function App() {
       `}</style>
 
       <div style={styles.card}>
-        <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
-          <div style={styles.brandContainer}>
-            <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>📚</div>
-            <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
-          </div>
-          
+      <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
+  <div style={styles.brandContainer}>
+    <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>
+      <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '20px', height: '20px', display: 'block' }} />
+    </div>
+    <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
+  </div>          
           <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
             <nav style={{ ...styles.nav, justifyContent: 'center', flex: 1 }}>
               <button
