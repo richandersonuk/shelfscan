@@ -43,6 +43,13 @@ interface RecSettings {
   };
 }
 
+// Helper to normalize titles for robust comparison across lists
+const cleanTitle = (str: string) =>
+  str
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+
 export default function App() {
   // Safely collect API keys from environment variables
   const apiKeys = [
@@ -63,7 +70,7 @@ export default function App() {
     theme: 'light',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
-    tasteRecs: false, // Defaulted to off
+    tasteRecs: false,
     colors: {
       wishlist_match: '#10b981',
       wishlist_author: '#f59e0b',
@@ -366,12 +373,14 @@ export default function App() {
       isbn: manualIsbn.trim() || undefined,
     };
 
+    const targetTitle = cleanTitle(newBook.title);
+
     if (target === 'wishlist') {
       setWishlist((prev) => [...prev, newBook]);
     } else {
       setLibrary((prev) => [...prev, newBook]);
       setWishlist((prev) =>
-        prev.filter((b) => b.title.toLowerCase() !== newBook.title.toLowerCase())
+        prev.filter((b) => cleanTitle(b.title) !== targetTitle)
       );
     }
 
@@ -381,33 +390,40 @@ export default function App() {
     setSuggestions([]);
   };
 
-  // Quick Add Match to Library and Remove from Wishlist
+  // Quick Add Match to Library and Purge from Wishlist
   const handleQuickAddToLibrary = (title: string) => {
-    const existsInLibrary = library.some((b) => b.title.toLowerCase() === title.toLowerCase());
-    
-    if (!existsInLibrary) {
-      setLibrary((prevLibrary) => [...prevLibrary, { id: Date.now().toString(), title }]);
-    }
+    const targetTitle = cleanTitle(title);
+
+    setLibrary((prevLibrary) => {
+      const exists = prevLibrary.some((b) => cleanTitle(b.title) === targetTitle);
+      if (!exists) {
+        return [...prevLibrary, { id: Date.now().toString(), title }];
+      }
+      return prevLibrary;
+    });
 
     setWishlist((prevWishlist) =>
-      prevWishlist.filter((b) => b.title.toLowerCase() !== title.toLowerCase())
+      prevWishlist.filter((b) => cleanTitle(b.title) !== targetTitle)
     );
   };
 
-  // Batch Import Selected Books and Remove from Wishlist if Adding to Library
+  // Batch Import Selected Books and Purge from Wishlist if Adding to Library
   const handleImportSelected = (target: 'wishlist' | 'library') => {
     const booksToAdd = detectedBooks.filter((b) => selectedBooks[b.id]);
-    
+
     if (target === 'wishlist') {
       setWishlist((prev) => [...prev, ...booksToAdd]);
       setActiveTab('wishlist');
     } else {
       setLibrary((prev) => [...prev, ...booksToAdd]);
-      const addedTitles = new Set(booksToAdd.map((b) => b.title.toLowerCase()));
-      setWishlist((prev) => prev.filter((b) => !addedTitles.has(b.title.toLowerCase())));
+
+      const addedTitles = new Set(booksToAdd.map((b) => cleanTitle(b.title)));
+      setWishlist((prev) =>
+        prev.filter((b) => !addedTitles.has(cleanTitle(b.title)))
+      );
       setActiveTab('library');
     }
-    
+
     setDetectedBooks([]);
     setImageSrc(null);
   };
@@ -834,7 +850,7 @@ export default function App() {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {/* WISHLIST MATCH COLOR (ALIGNED WITH SPACER) */}
+              {/* WISHLIST MATCH COLOR */}
               <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <div style={{ width: '13px', visibility: 'hidden' }} />
                 <input
@@ -1040,7 +1056,7 @@ export default function App() {
                       {matches.map((m, idx) => {
                         const color = getColorForRecType(m.recommendationType);
                         const itemTitle = m.matchedWishlistItem || m.detectedSpineTitle;
-                        const isOwned = library.some((b) => b.title.toLowerCase() === itemTitle.toLowerCase());
+                        const isOwned = library.some((b) => cleanTitle(b.title) === cleanTitle(itemTitle));
 
                         return (
                           <div key={idx} style={{ ...styles.matchResultCard, backgroundColor: theme.cardSubBg, borderLeft: `4px solid ${color}` }}>
