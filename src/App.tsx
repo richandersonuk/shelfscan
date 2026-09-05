@@ -57,13 +57,13 @@ export default function App() {
   const [wishlist, setWishlist] = useState<Book[]>([]);
   const [library, setLibrary] = useState<Book[]>([]);
 
-  // Settings State (Defaulting to Light Theme)
+  // Settings State (Defaulting to Light Theme & tasteRecs OFF)
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [recSettings, setRecSettings] = useState<RecSettings>({
     theme: 'light',
     wishlistAuthorRecs: true,
     libraryAuthorRecs: true,
-    tasteRecs: false,
+    tasteRecs: false, // Defaulted to off
     colors: {
       wishlist_match: '#10b981',
       wishlist_author: '#f59e0b',
@@ -108,7 +108,8 @@ export default function App() {
     if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     else setWishlist([
       { id: '1', title: 'Dune', author: 'Frank Herbert' },
-      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' }
+      { id: '2', title: 'The Hobbit', author: 'J.R.R. Tolkien' },
+      { id: '3', title: 'Neuromancer', author: 'William Gibson' }
     ]);
 
     if (savedLibrary) setLibrary(JSON.parse(savedLibrary));
@@ -116,6 +117,7 @@ export default function App() {
       const parsed = JSON.parse(savedSettings);
       setRecSettings({
         theme: 'light',
+        tasteRecs: false,
         ...parsed,
         colors: {
           wishlist_match: '#10b981',
@@ -354,6 +356,7 @@ export default function App() {
     });
   };
 
+  // Add Manual Entry & Remove Matching Title from Wishlist if Adding to Library
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
     const newBook: Book = {
@@ -364,9 +367,12 @@ export default function App() {
     };
 
     if (target === 'wishlist') {
-      setWishlist([...wishlist, newBook]);
+      setWishlist((prev) => [...prev, newBook]);
     } else {
-      setLibrary([...library, newBook]);
+      setLibrary((prev) => [...prev, newBook]);
+      setWishlist((prev) =>
+        prev.filter((b) => b.title.toLowerCase() !== newBook.title.toLowerCase())
+      );
     }
 
     setManualTitle('');
@@ -375,11 +381,35 @@ export default function App() {
     setSuggestions([]);
   };
 
+  // Quick Add Match to Library and Remove from Wishlist
   const handleQuickAddToLibrary = (title: string) => {
-    const exists = library.some((b) => b.title.toLowerCase() === title.toLowerCase());
-    if (!exists) {
-      setLibrary([...library, { id: Date.now().toString(), title }]);
+    const existsInLibrary = library.some((b) => b.title.toLowerCase() === title.toLowerCase());
+    
+    if (!existsInLibrary) {
+      setLibrary((prevLibrary) => [...prevLibrary, { id: Date.now().toString(), title }]);
     }
+
+    setWishlist((prevWishlist) =>
+      prevWishlist.filter((b) => b.title.toLowerCase() !== title.toLowerCase())
+    );
+  };
+
+  // Batch Import Selected Books and Remove from Wishlist if Adding to Library
+  const handleImportSelected = (target: 'wishlist' | 'library') => {
+    const booksToAdd = detectedBooks.filter((b) => selectedBooks[b.id]);
+    
+    if (target === 'wishlist') {
+      setWishlist((prev) => [...prev, ...booksToAdd]);
+      setActiveTab('wishlist');
+    } else {
+      setLibrary((prev) => [...prev, ...booksToAdd]);
+      const addedTitles = new Set(booksToAdd.map((b) => b.title.toLowerCase()));
+      setWishlist((prev) => prev.filter((b) => !addedTitles.has(b.title.toLowerCase())));
+      setActiveTab('library');
+    }
+    
+    setDetectedBooks([]);
+    setImageSrc(null);
   };
 
   // Resilient Gemini Scan Function with Automatic Quota Fallback
@@ -540,19 +570,6 @@ export default function App() {
 
   const toggleSelectBook = (id: string) => {
     setSelectedBooks((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const handleImportSelected = (target: 'wishlist' | 'library') => {
-    const booksToAdd = detectedBooks.filter((b) => selectedBooks[b.id]);
-    if (target === 'wishlist') {
-      setWishlist([...wishlist, ...booksToAdd]);
-      setActiveTab('wishlist');
-    } else {
-      setLibrary([...library, ...booksToAdd]);
-      setActiveTab('library');
-    }
-    setDetectedBooks([]);
-    setImageSrc(null);
   };
 
   const handleColorChange = (key: keyof RecSettings['colors'], colorHex: string) => {
@@ -870,7 +887,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TASTE MATCH TOGGLE & COLOR */}
+              {/* TASTE MATCH TOGGLE & COLOR (DEFAULT OFF) */}
               <div style={{ ...styles.settingRow, backgroundColor: theme.cardSubBg }}>
                 <input
                   type="checkbox"
@@ -1303,8 +1320,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
   },
   headerIconBadge: {
-    width: '28px',
-    height: '28px',
+    width: '40px',
+    height: '40px',
     borderRadius: '6px',
     display: 'flex',
     alignItems: 'center',
