@@ -243,7 +243,7 @@ export default function App() {
     return { wishlist: newWishlist, library: newLibrary };
   };
 
-  // Open Library Auto-complete Debounce
+  // Open Library Search by Title Debounce
   useEffect(() => {
     if (manualTitle.trim().length < 3) {
       setSuggestions([]);
@@ -272,6 +272,34 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [manualTitle]);
+
+  // Open Library Search by ISBN Debounce
+  useEffect(() => {
+    const cleanIsbn = manualIsbn.replace(/[^0-9X]/gi, '');
+    if (cleanIsbn.length < 8) return;
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`);
+        const data = await res.json();
+        const bookData = data[`ISBN:${cleanIsbn}`];
+
+        if (bookData) {
+          if (bookData.title && !manualTitle) setManualTitle(bookData.title);
+          if (bookData.authors && bookData.authors.length > 0 && !manualAuthor) {
+            setManualAuthor(bookData.authors[0].name);
+          }
+        }
+      } catch (e) {
+        console.error('ISBN search error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [manualIsbn]);
 
   const handleSelectSuggestion = (s: Suggestion) => {
     setManualTitle(s.title);
@@ -1062,7 +1090,10 @@ export default function App() {
                 <input
                   placeholder="Book Title (Type to search...)"
                   value={manualTitle}
-                  onChange={(e) => setManualTitle(e.target.value)}
+                  onChange={(e) => {
+                    setSuggestions([]);
+                    setManualTitle(e.target.value);
+                  }}
                   style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
                 {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
@@ -1093,7 +1124,9 @@ export default function App() {
               />
 
               <input
-                placeholder="ISBN (Optional)"
+                type="text"
+                inputMode="numeric"
+                placeholder="ISBN (Type or paste to search...)"
                 value={manualIsbn}
                 onChange={(e) => setManualIsbn(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
@@ -1133,7 +1166,10 @@ export default function App() {
                 <input
                   placeholder="Book Title (Type to search...)"
                   value={manualTitle}
-                  onChange={(e) => setManualTitle(e.target.value)}
+                  onChange={(e) => {
+                    setSuggestions([]);
+                    setManualTitle(e.target.value);
+                  }}
                   style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
                 />
                 {isSearching && <span style={{ ...styles.searchingBadge, color: theme.accent }}>Searching...</span>}
@@ -1164,7 +1200,9 @@ export default function App() {
               />
 
               <input
-                placeholder="ISBN (Optional)"
+                type="text"
+                inputMode="numeric"
+                placeholder="ISBN (Type or paste to search...)"
                 value={manualIsbn}
                 onChange={(e) => setManualIsbn(e.target.value)}
                 style={{ ...styles.input, backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }}
