@@ -555,7 +555,7 @@ export default function App() {
       <header className="app-header" style={{ ...styles.header, borderColor: theme.border }}>
   <div style={styles.brandContainer}>
     <div style={{ ...styles.headerIconBadge, backgroundColor: theme.cardBg, borderColor: theme.border }}>
-      <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '20px', height: '20px', display: 'block' }} />
+      <img src="/favicon.svg" alt="ShelfScan AI Logo" style={{ width: '40px', height: '40px', display: 'block' }} />
     </div>
     <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
   </div>          
