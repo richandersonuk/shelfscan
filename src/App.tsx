@@ -51,10 +51,14 @@ const cleanTitle = (str: string) =>
     .trim();
 
 export default function App() {
-  // Safely collect API keys from environment variables
-  const apiKeys = [
+  // Safely collect Gemini API keys and Groq API keys from environment variables
+  const geminiKeys = [
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY,
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY_SECONDARY,
+  ].filter((key): key is string => Boolean(key && key.trim().length > 0));
+
+  const groqKeys = [
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY,
   ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
   const [activeKeyIdx, setActiveKeyIdx] = useState<number>(0);
@@ -428,10 +432,10 @@ export default function App() {
     setImageSrc(null);
   };
 
-  // Resilient Gemini Scan Function with Automatic Quota Fallback
+  // Resilient Scan Function with Automatic Gemini & Groq Fallbacks
   const handleScan = async () => {
-    if (apiKeys.length === 0) {
-      setError('No valid VITE_GEMINI_API_KEY environment variables found.');
+    if (geminiKeys.length === 0 && groqKeys.length === 0) {
+      setError('No valid VITE_GEMINI_API_KEY or VITE_GROQ_API_KEY environment variables found.');
       return;
     }
     if (!imageSrc) {
@@ -452,14 +456,15 @@ export default function App() {
         const libraryTitles = library.map((b) => b.title);
 
         const prompt = `
-          Analyze the book spines on this shelf and return matches or recommendations in JSON based on these criteria:
-          1. Direct Wishlist Matches: Titles present in ${JSON.stringify(wishlistTitles)}. Set recommendationType to "wishlist_match".
-          ${recSettings.wishlistAuthorRecs ? `2. Wishlist Author Recs: Books on shelf written by these authors: ${JSON.stringify(wishlistAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "wishlist_author".` : ''}
-          ${recSettings.libraryAuthorRecs ? `3. Library Author Recs: Books on shelf written by these authors: ${JSON.stringify(libraryAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "library_author".` : ''}
-          ${recSettings.tasteRecs ? `4. Taste Match Recs: Books on shelf matching general reading taste based on wishlist (${JSON.stringify(wishlistTitles)}) and library (${JSON.stringify(libraryTitles)}). Set recommendationType to "taste_match".` : ''}
+Analyze the book spines on this shelf and return matches or recommendations in JSON based on these criteria:
 
-          Return box_2d coordinates [ymin, xmin, ymax, xmax] normalized from 0-1000 for each match.
-        `;
+1. Direct Wishlist Matches: Titles present in ${JSON.stringify(wishlistTitles)}. Set recommendationType to "wishlist_match".
+${recSettings.wishlistAuthorRecs ? `2. Wishlist Author Recs: Books on shelf written by these authors: ${JSON.stringify(wishlistAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "wishlist_author".` : ''}
+${recSettings.libraryAuthorRecs ? `3. Library Author Recs: Books on shelf written by these authors: ${JSON.stringify(libraryAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "library_author".` : ''}
+${recSettings.tasteRecs ? `4. Taste Match Recs: Books on shelf matching general reading taste based on wishlist (${JSON.stringify(wishlistTitles)}) and library (${JSON.stringify(libraryTitles)}). Set recommendationType to "taste_match".` : ''}
+
+Return box_2d coordinates [ymin, xmin, ymax, xmax] normalized from 0-1000 for each match.
+`;
 
         const schema = {
           type: 'OBJECT',
@@ -482,15 +487,15 @@ export default function App() {
           required: ['matches'],
         };
 
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
+        const res = await callVisionAPI(prompt, compressedBase64, schema);
         setMatches(res.matches || []);
 
       } else {
         const prompt = `
-          Analyze this image to extract book information.
-          It could be a book cover, book spine, rear cover with a barcode/ISBN, a full bookshelf, or a screenshot containing a list of books.
-          Extract all visible book titles, authors, and ISBN numbers.
-        `;
+Analyze this image to extract book information.
+It could be a book cover, book spine, rear cover with a barcode/ISBN, a full bookshelf, or a screenshot containing a list of books.
+Extract all visible book titles, authors, and ISBN numbers.
+`;
 
         const schema = {
           type: 'OBJECT',
@@ -511,7 +516,7 @@ export default function App() {
           required: ['books'],
         };
 
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
+        const res = await callVisionAPI(prompt, compressedBase64, schema);
         const parsedBooks: Book[] = (res.books || []).map((b: any) => ({
           id: Math.random().toString(),
           title: b.title,
@@ -532,15 +537,14 @@ export default function App() {
     }
   };
 
-  const callGeminiAPI = async (prompt: string, base64Data: string, schema: any): Promise<any> => {
+  const callVisionAPI = async (prompt: string, base64Data: string, schema: any): Promise<any> => {
+    // 1. Try Gemini Keys First
     let currentIdx = activeKeyIdx;
-
-    for (let attempt = 0; attempt < apiKeys.length; attempt++) {
-      const currentKey = apiKeys[currentIdx];
-
+    for (let attempt = 0; attempt < geminiKeys.length; attempt++) {
+      const currentKey = geminiKeys[currentIdx];
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -566,22 +570,59 @@ export default function App() {
           data.error?.message?.toLowerCase().includes('quota');
 
         if (!res.ok) {
-          if (isQuotaError && attempt < apiKeys.length - 1) {
-            console.warn(`Quota exceeded on key index ${currentIdx}. Retrying with secondary fallback key...`);
-            currentIdx = (currentIdx + 1) % apiKeys.length;
+          if (isQuotaError && attempt < geminiKeys.length - 1) {
+            console.warn(`Quota exceeded on Gemini key index ${currentIdx}. Retrying with secondary fallback key...`);
+            currentIdx = (currentIdx + 1) % geminiKeys.length;
             setActiveKeyIdx(currentIdx);
             continue;
           }
-          throw new Error(data.error?.message || `API error (${res.status})`);
+          throw new Error(data.error?.message || `Gemini API error (${res.status})`);
         }
 
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         return JSON.parse(text || '{}');
-
       } catch (err: any) {
-        if (attempt === apiKeys.length - 1) throw err;
+        if (attempt === geminiKeys.length - 1 && groqKeys.length === 0) throw err;
       }
     }
+
+    // 2. Fallback to GroqCloud Vision API if Gemini keys are exhausted or unavailable
+    if (groqKeys.length > 0) {
+      console.warn('Gemini keys failed or exhausted. Falling back to GroqCloud Vision API...');
+      const groqKey = groqKeys[0];
+      
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-3.2-11b-vision-preview',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: `${prompt}\n\nRespond strictly with valid JSON conforming to this schema:\n${JSON.stringify(schema)}` },
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+              ]
+            }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || `GroqCloud API error (${res.status})`);
+      }
+
+      const content = data.choices?.[0]?.message?.content;
+      return JSON.parse(content || '{}');
+    }
+
+    throw new Error('All API keys (Gemini and GroqCloud) failed or are missing.');
   };
 
   const toggleSelectBook = (id: string) => {
@@ -620,26 +661,26 @@ export default function App() {
   return (
     <div style={{ ...styles.container, backgroundColor: theme.bg, color: theme.text }}>
       <style>{`
-        @keyframes scanBeam {
-          0% { top: 0%; opacity: 0.8; }
-          50% { top: 95%; opacity: 0.8; }
-          100% { top: 0%; opacity: 0.8; }
-        }
-        @keyframes pulseGlow {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.7; }
-        }
-        @media (max-width: 500px) {
-          .app-header {
-            flex-direction: column !important;
-            align-items: center !important;
-            gap: 12px !important;
-          }
-          .app-header-controls {
-            width: 100% !important;
-            justify-content: space-between !important;
-          }
-        }
+@keyframes scanBeam {
+  0% { top: 0%; opacity: 0.8; }
+  50% { top: 95%; opacity: 0.8; }
+  100% { top: 0%; opacity: 0.8; }
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+@media (max-width: 500px) {
+  .app-header {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 12px !important;
+  }
+  .app-header-controls {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+}
       `}</style>
 
       <div style={styles.card}>
@@ -650,7 +691,6 @@ export default function App() {
             </div>
             <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
           </div>
-          
           <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
             <nav style={{ ...styles.nav, justifyContent: 'center', flex: 1 }}>
               <button
@@ -786,7 +826,6 @@ export default function App() {
               {recSettings.theme === 'custom' && (
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: theme.cardSubBg, padding: '10px', borderRadius: '6px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Custom Interface Palette:</span>
-                  
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <label style={styles.colorPickerLabel}>
                       <input
