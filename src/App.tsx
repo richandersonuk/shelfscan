@@ -586,8 +586,8 @@ Extract all visible book titles, authors, and ISBN numbers.
       }
     }
 
-    // 2. Fallback to GroqCloud Vision API if Gemini keys are exhausted or unavailable
-    if (groqKeys.length > 0) {
+     // Fallback to GroqCloud Vision API if Gemini keys are exhausted or unavailable
+     if (groqKeys.length > 0) {
       console.warn('Gemini keys failed or exhausted. Falling back to GroqCloud Vision API...');
       const groqKey = groqKeys[0];
       
@@ -598,7 +598,7 @@ Extract all visible book titles, authors, and ISBN numbers.
           'Authorization': `Bearer ${groqKey}`,
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3.2-11b-vision-preview',
+          model: 'qwen/qwen3.8-27b',
           messages: [
             {
               role: 'user',
@@ -610,6 +610,7 @@ Extract all visible book titles, authors, and ISBN numbers.
           ],
           response_format: { type: 'json_object' },
           temperature: 0.1,
+          max_tokens: 1000, // Explicitly cap tokens to match the tier limit
         }),
       });
 
@@ -621,6 +622,7 @@ Extract all visible book titles, authors, and ISBN numbers.
       const content = data.choices?.[0]?.message?.content;
       return JSON.parse(content || '{}');
     }
+
 
     throw new Error('All API keys (Gemini and GroqCloud) failed or are missing.');
   };
