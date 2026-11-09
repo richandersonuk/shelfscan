@@ -51,10 +51,14 @@ const cleanTitle = (str: string) =>
     .trim();
 
 export default function App() {
-  // Safely collect API keys from environment variables
-  const apiKeys = [
+  // Safely collect Gemini API keys and Groq API keys from environment variables
+  const geminiKeys = [
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY,
     typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY_SECONDARY,
+  ].filter((key): key is string => Boolean(key && key.trim().length > 0));
+
+  const groqKeys = [
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY,
   ].filter((key): key is string => Boolean(key && key.trim().length > 0));
 
   const [activeKeyIdx, setActiveKeyIdx] = useState<number>(0);
@@ -363,6 +367,54 @@ export default function App() {
     });
   };
 
+  // Resilient Metadata Lookup with Open Library -> Google Books Fallback
+  const lookupBookMetadata = async (rawTitle: string, rawAuthor?: string) => {
+    const query = `${rawTitle} ${rawAuthor || ''}`.trim();
+
+    try {
+      // 1. Try Open Library First
+      const olRes = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=1`);
+      const olData = await olRes.json();
+
+      if (olData.docs && olData.docs.length > 0) {
+        const doc = olData.docs[0];
+        return {
+          title: doc.title,
+          author: doc.author_name?.[0] || rawAuthor || 'Unknown Author',
+          isbn: doc.isbn?.[0],
+        };
+      }
+    } catch (e) {
+      console.warn('Open Library lookup failed, falling back to Google Books:', e);
+    }
+
+    try {
+      // 2. Fallback to Google Books API (great for upcoming books, pre-orders, and new releases)
+      const gbRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`);
+      const gbData = await gbRes.json();
+
+      if (gbData.items && gbData.items.length > 0) {
+        const volumeInfo = gbData.items[0].volumeInfo;
+        const industryIdentifiers = volumeInfo.industryIdentifiers || [];
+        const isbnObj = industryIdentifiers.find((id: any) => id.type === 'ISBN_13') || industryIdentifiers[0];
+
+        return {
+          title: volumeInfo.title,
+          author: volumeInfo.authors ? volumeInfo.authors[0] : rawAuthor || 'Unknown Author',
+          isbn: isbnObj ? isbnObj.identifier : undefined,
+        };
+      }
+    } catch (e) {
+      console.error('Google Books fallback failed:', e);
+    }
+
+    // 3. Ultimate Fallback: return raw extracted text if both APIs miss
+    return {
+      title: rawTitle,
+      author: rawAuthor || 'Unknown Author',
+    };
+  };
+
   // Add Manual Entry & Remove Matching Title from Wishlist if Adding to Library
   const handleAddManual = (target: 'wishlist' | 'library') => {
     if (!manualTitle.trim()) return;
@@ -428,10 +480,10 @@ export default function App() {
     setImageSrc(null);
   };
 
-  // Resilient Gemini Scan Function with Automatic Quota Fallback
+  // Scan Workflow with Multi-Source Metadata Enrichment
   const handleScan = async () => {
-    if (apiKeys.length === 0) {
-      setError('No valid VITE_GEMINI_API_KEY environment variables found.');
+    if (geminiKeys.length === 0 && groqKeys.length === 0) {
+      setError('No valid VITE_GEMINI_API_KEY or VITE_GROQ_API_KEY environment variables found.');
       return;
     }
     if (!imageSrc) {
@@ -446,53 +498,88 @@ export default function App() {
       const compressedBase64 = await compressImage(imageSrc, 1280);
 
       if (scanMode === 'search_shelf') {
+        const visionPrompt = `
+Analyze the book spines on this shelf. For each book spine visible, transcribe the raw text printed on it and provide its bounding box coordinates [ymin, xmin, ymax, xmax] normalized from 0-1000.
+`;
+        const visionSchema = {
+          type: 'OBJECT',
+          properties: {
+            items: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  rawSpineText: { type: 'STRING' },
+                  box_2d: { type: 'ARRAY', items: { type: 'INTEGER' } },
+                },
+                required: ['rawSpineText', 'box_2d'],
+              },
+            },
+          },
+          required: ['items'],
+        };
+
+        const visionRes = await callVisionAPI(visionPrompt, compressedBase64, visionSchema);
+        const rawItems = visionRes.items || [];
+
         const wishlistTitles = wishlist.map((b) => b.title);
         const wishlistAuthors = Array.from(new Set(wishlist.map((b) => b.author).filter(Boolean)));
         const libraryAuthors = Array.from(new Set(library.map((b) => b.author).filter(Boolean)));
         const libraryTitles = library.map((b) => b.title);
 
-        const prompt = `
-          Analyze the book spines on this shelf and return matches or recommendations in JSON based on these criteria:
-          1. Direct Wishlist Matches: Titles present in ${JSON.stringify(wishlistTitles)}. Set recommendationType to "wishlist_match".
-          ${recSettings.wishlistAuthorRecs ? `2. Wishlist Author Recs: Books on shelf written by these authors: ${JSON.stringify(wishlistAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "wishlist_author".` : ''}
-          ${recSettings.libraryAuthorRecs ? `3. Library Author Recs: Books on shelf written by these authors: ${JSON.stringify(libraryAuthors)} which are NOT already in owned library (${JSON.stringify(libraryTitles)}). Set recommendationType to "library_author".` : ''}
-          ${recSettings.tasteRecs ? `4. Taste Match Recs: Books on shelf matching general reading taste based on wishlist (${JSON.stringify(wishlistTitles)}) and library (${JSON.stringify(libraryTitles)}). Set recommendationType to "taste_match".` : ''}
+        const verifiedMatches: MatchResult[] = [];
 
-          Return box_2d coordinates [ymin, xmin, ymax, xmax] normalized from 0-1000 for each match.
-        `;
+        for (const item of rawItems) {
+          if (!item.rawSpineText || item.rawSpineText.trim().length < 2) continue;
 
-        const schema = {
-          type: 'OBJECT',
-          properties: {
-            matches: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  matchedWishlistItem: { type: 'STRING' },
-                  detectedSpineTitle: { type: 'STRING' },
-                  recommendationType: { type: 'STRING' },
-                  reason: { type: 'STRING' },
-                  box_2d: { type: 'ARRAY', items: { type: 'INTEGER' } },
-                },
-                required: ['detectedSpineTitle', 'recommendationType', 'box_2d'],
-              },
-            },
-          },
-          required: ['matches'],
-        };
+          try {
+            const metadata = await lookupBookMetadata(item.rawSpineText);
+            const verifiedTitle = metadata.title;
+            const verifiedAuthor = metadata.author;
 
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
-        setMatches(res.matches || []);
+            const isWishlistMatch = wishlistTitles.some(wt => cleanTitle(wt) === cleanTitle(verifiedTitle));
+            const isWishlistAuthor = recSettings.wishlistAuthorRecs && verifiedAuthor && wishlistAuthors.some(wa => verifiedAuthor.toLowerCase().includes(wa.toLowerCase()));
+            const isLibraryAuthor = recSettings.libraryAuthorRecs && verifiedAuthor && libraryAuthors.some(la => verifiedAuthor.toLowerCase().includes(la.toLowerCase()));
+            const isAlreadyOwned = libraryTitles.some(lt => cleanTitle(lt) === cleanTitle(verifiedTitle));
+
+            if (isAlreadyOwned && !isWishlistMatch) continue;
+
+            let recType: MatchResult['recommendationType'] = 'taste_match';
+            let reason = `Found by search for "${item.rawSpineText}"`;
+
+            if (isWishlistMatch) {
+              recType = 'wishlist_match';
+              reason = 'Exact match from your wishlist!';
+            } else if (isWishlistAuthor) {
+              recType = 'wishlist_author';
+              reason = `Written by wishlist author: ${verifiedAuthor}`;
+            } else if (isLibraryAuthor) {
+              recType = 'library_author';
+              reason = `Written by author in your library: ${verifiedAuthor}`;
+            } else if (!recSettings.tasteRecs) {
+              continue;
+            }
+
+            verifiedMatches.push({
+              matchedWishlistItem: isWishlistMatch ? verifiedTitle : undefined,
+              detectedSpineTitle: verifiedTitle,
+              recommendationType: recType,
+              reason,
+              box_2d: item.box_2d,
+            });
+          } catch (apiErr) {
+            console.error('Verification error for item:', item.rawSpineText, apiErr);
+          }
+        }
+
+        setMatches(verifiedMatches);
 
       } else {
-        const prompt = `
-          Analyze this image to extract book information.
-          It could be a book cover, book spine, rear cover with a barcode/ISBN, a full bookshelf, or a screenshot containing a list of books.
-          Extract all visible book titles, authors, and ISBN numbers.
-        `;
-
-        const schema = {
+        // ADD TO WISHLIST / LIBRARY MODE (Utilizes Open Library + Google Books fallback)
+        const visionPrompt = `
+Analyze this image to extract book covers, spines, or list text. Extract the raw title and author text visible.
+`;
+        const visionSchema = {
           type: 'OBJECT',
           properties: {
             books: {
@@ -500,28 +587,33 @@ export default function App() {
               items: {
                 type: 'OBJECT',
                 properties: {
-                  title: { type: 'STRING' },
-                  author: { type: 'STRING' },
-                  isbn: { type: 'STRING' },
+                  rawTitle: { type: 'STRING' },
+                  rawAuthor: { type: 'STRING' },
                 },
-                required: ['title'],
+                required: ['rawTitle'],
               },
             },
           },
           required: ['books'],
         };
 
-        const res = await callGeminiAPI(prompt, compressedBase64, schema);
-        const parsedBooks: Book[] = (res.books || []).map((b: any) => ({
-          id: Math.random().toString(),
-          title: b.title,
-          author: b.author,
-          isbn: b.isbn,
-        }));
+        const visionRes = await callVisionAPI(visionPrompt, compressedBase64, visionSchema);
+        const rawBooks = visionRes.books || [];
+        const enrichedBooks: Book[] = [];
 
-        setDetectedBooks(parsedBooks);
+        for (const rb of rawBooks) {
+          const metadata = await lookupBookMetadata(rb.rawTitle, rb.rawAuthor);
+          enrichedBooks.push({
+            id: Math.random().toString(),
+            title: metadata.title,
+            author: metadata.author,
+            isbn: metadata.isbn,
+          });
+        }
+
+        setDetectedBooks(enrichedBooks);
         const initSelected: Record<string, boolean> = {};
-        parsedBooks.forEach((b) => (initSelected[b.id] = true));
+        enrichedBooks.forEach((b) => (initSelected[b.id] = true));
         setSelectedBooks(initSelected);
       }
     } catch (err: any) {
@@ -532,15 +624,14 @@ export default function App() {
     }
   };
 
-  const callGeminiAPI = async (prompt: string, base64Data: string, schema: any): Promise<any> => {
+  const callVisionAPI = async (prompt: string, base64Data: string, schema: any): Promise<any> => {
+    // 1. Try Gemini Keys First
     let currentIdx = activeKeyIdx;
-
-    for (let attempt = 0; attempt < apiKeys.length; attempt++) {
-      const currentKey = apiKeys[currentIdx];
-
+    for (let attempt = 0; attempt < geminiKeys.length; attempt++) {
+      const currentKey = geminiKeys[currentIdx];
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -566,22 +657,60 @@ export default function App() {
           data.error?.message?.toLowerCase().includes('quota');
 
         if (!res.ok) {
-          if (isQuotaError && attempt < apiKeys.length - 1) {
-            console.warn(`Quota exceeded on key index ${currentIdx}. Retrying with secondary fallback key...`);
-            currentIdx = (currentIdx + 1) % apiKeys.length;
+          if (isQuotaError && attempt < geminiKeys.length - 1) {
+            console.warn(`Quota exceeded on Gemini key index ${currentIdx}. Retrying with secondary fallback key...`);
+            currentIdx = (currentIdx + 1) % geminiKeys.length;
             setActiveKeyIdx(currentIdx);
             continue;
           }
-          throw new Error(data.error?.message || `API error (${res.status})`);
+          throw new Error(data.error?.message || `Gemini API error (${res.status})`);
         }
 
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         return JSON.parse(text || '{}');
-
       } catch (err: any) {
-        if (attempt === apiKeys.length - 1) throw err;
+        if (attempt === geminiKeys.length - 1 && groqKeys.length === 0) throw err;
       }
     }
+
+    // 2. Fallback to GroqCloud Vision API with token limits & Qwen vision model
+    if (groqKeys.length > 0) {
+      console.warn('Gemini keys failed or exhausted. Falling back to GroqCloud Vision API...');
+      const groqKey = groqKeys[0];
+      
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'qwen/qwen3.8-27b',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: `${prompt}\n\nRespond strictly with valid JSON conforming to this schema:\n${JSON.stringify(schema)}` },
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+              ]
+            }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+          max_tokens: 1000,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || `GroqCloud API error (${res.status})`);
+      }
+
+      const content = data.choices?.[0]?.message?.content;
+      return JSON.parse(content || '{}');
+    }
+
+    throw new Error('All API keys (Gemini and GroqCloud) failed or are missing.');
   };
 
   const toggleSelectBook = (id: string) => {
@@ -620,26 +749,26 @@ export default function App() {
   return (
     <div style={{ ...styles.container, backgroundColor: theme.bg, color: theme.text }}>
       <style>{`
-        @keyframes scanBeam {
-          0% { top: 0%; opacity: 0.8; }
-          50% { top: 95%; opacity: 0.8; }
-          100% { top: 0%; opacity: 0.8; }
-        }
-        @keyframes pulseGlow {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.7; }
-        }
-        @media (max-width: 500px) {
-          .app-header {
-            flex-direction: column !important;
-            align-items: center !important;
-            gap: 12px !important;
-          }
-          .app-header-controls {
-            width: 100% !important;
-            justify-content: space-between !important;
-          }
-        }
+@keyframes scanBeam {
+  0% { top: 0%; opacity: 0.8; }
+  50% { top: 95%; opacity: 0.8; }
+  100% { top: 0%; opacity: 0.8; }
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+@media (max-width: 500px) {
+  .app-header {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 12px !important;
+  }
+  .app-header-controls {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+}
       `}</style>
 
       <div style={styles.card}>
@@ -650,7 +779,6 @@ export default function App() {
             </div>
             <h1 style={{ ...styles.title, color: theme.accent, whiteSpace: 'nowrap' }}>ShelfScan AI</h1>
           </div>
-          
           <div className="app-header-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'center' }}>
             <nav style={{ ...styles.nav, justifyContent: 'center', flex: 1 }}>
               <button
@@ -786,7 +914,6 @@ export default function App() {
               {recSettings.theme === 'custom' && (
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: theme.cardSubBg, padding: '10px', borderRadius: '6px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Custom Interface Palette:</span>
-                  
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <label style={styles.colorPickerLabel}>
                       <input
@@ -999,7 +1126,7 @@ export default function App() {
                 disabled={loading}
                 style={{ ...styles.primaryBtn, backgroundColor: theme.accent, color: theme.btnText, width: '100%', marginTop: '8px', opacity: loading ? 0.6 : 1 }}
               >
-                {loading ? 'Analyzing with AI...' : 'Run Scan'}
+                {loading ? 'Analyzing & Fetching Metadata...' : 'Run Scan'}
               </button>
             )}
 
@@ -1015,7 +1142,7 @@ export default function App() {
                     <>
                       <div style={{ ...styles.laserLine, backgroundColor: theme.accent }} />
                       <div style={{ ...styles.scanOverlayText, borderColor: theme.accent, color: theme.accent }}>
-                        Scanning with AI...
+                        Extracting & Verifying Books...
                       </div>
                     </>
                   )}
@@ -1564,4 +1691,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '16px',
     cursor: 'pointer',
   },
-};
+}
